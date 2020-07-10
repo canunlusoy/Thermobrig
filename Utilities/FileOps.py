@@ -1,4 +1,4 @@
-from pandas import read_excel
+from pandas import read_excel, DataFrame
 from typing import Union, List
 
 
@@ -15,3 +15,6 @@ def read_Excel_DF(filepath: str, worksheet: Union[str, int] = None, indexColumn:
     return read_excel(filepath, **kwargs)
 
 
+def process_MaterialPropertyDF(materialPropertyDF: DataFrame):
+    # TODO
+    return materialPropertyDF
