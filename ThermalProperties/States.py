@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Union, Dict
 
 from Utilities.Numeric import isNumeric, get_rangeEndpoints
-from Utilities.ThprOps import get_satPropts_byPT, interpolate_betweenPureStates
 
 @dataclass
 class StatePure:
@@ -52,7 +51,7 @@ class StatePure:
 
 
     def get_asDict_definedProperties(self) -> OrderedDict:
-        """Returns OrderedDict mapping property names to values for properties which have numeric values defined. Properties are ordered according to preference in interpolation."""
+        """Returns OrderedDict mapping property names to values for properties which have numeric values defined. ThermalProperties are ordered according to preference in interpolation."""
         return OrderedDict([(propertyName, getattr(self, propertyName)) for propertyName in self.properties_all if self.hasDefined(propertyName)])
 
     def get_asDict_allProperties(self, ordered: bool = False) -> Union[Dict, OrderedDict]:
@@ -72,7 +71,7 @@ class StatePure:
             else:
                 missingProperties_inDFRow.append(propertyName)
         if missingProperties_inDFRow != []:
-            print('Properties ' + str(missingProperties_inDFRow) + ' not provided in DataFrame row.')
+            print('ThermalProperties ' + str(missingProperties_inDFRow) + ' not provided in DataFrame row.')
         return self
 
     def init_fromDict(self, dictionary: Dict):

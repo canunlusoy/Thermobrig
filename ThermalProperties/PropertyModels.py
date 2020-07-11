@@ -1,6 +1,6 @@
-from Utilities.ThprOps import get_satPropts_byPT, fullyDefine_StatePure
+from ThermalProperties.ThprOps import fullyDefine_StatePure
 import Utilities.FileOps
-from Properties.States import StatePure
+from ThermalProperties.States import StatePure
 
 dataFile_path = r'D:\Belgeler\İşler\Thermobrig\Thermodynamic Property Data\Cengel_Formatted_Unified.xlsx'
 dataFile_worksheet = 'WaterUnified'
