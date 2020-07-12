@@ -1,0 +1,31 @@
+import matplotlib.pyplot as plt
+from pandas import DataFrame
+
+from Utilities.FileOps import read_Excel_DF, process_MaterialPropertyDF
+
+dataFile_path = r'D:\Belgeler\İşler\Thermobrig\Thermodynamic Property Data\Cengel_Formatted_Unified.xlsx'
+dataFile_worksheet = 'WaterUnified'
+dataFile = read_Excel_DF(dataFile_path, worksheet=dataFile_worksheet, headerRow=1, skipRows=[0])
+MaterialPropertyDF = process_MaterialPropertyDF(dataFile)
+
+
+
+
+
+
+
+
+def plot_scatter(x_parameter: str, y_parameter: str, color_parameter: str):
+    figure, axes = plt.subplots()
+
+    x_data, y_data, z_data = [], [], []
+    parameterLists = {x_parameter: x_data, y_parameter: y_data, color_parameter: z_data}
+
+    for rowIndex in MaterialPropertyDF.index:
+        for parameter in parameterLists:
+            parameterLists[parameter].append(float(MaterialPropertyDF.iloc[rowIndex][parameter]))
+
+    axes.scatter(x_data, y_data, c=z_data, cmap='gist_rainbow')
+    plt.show()
+
+plot_scatter('s', 'T', 'P')

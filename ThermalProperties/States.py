@@ -2,7 +2,7 @@ from pandas import DataFrame
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Union, Dict
+from typing import Union, Dict, List
 
 from Utilities.Numeric import isNumeric, get_rangeEndpoints
 
@@ -53,6 +53,10 @@ class StatePure:
     def get_asDict_definedProperties(self) -> OrderedDict:
         """Returns OrderedDict mapping property names to values for properties which have numeric values defined. ThermalProperties are ordered according to preference in interpolation."""
         return OrderedDict([(propertyName, getattr(self, propertyName)) for propertyName in self.properties_all if self.hasDefined(propertyName)])
+
+    def get_asList_definedPropertiesNames(self) -> List:
+        """Returns list of property names whose values are numeric, i.e. whose values are defined."""
+        return [propertyName for propertyName in self.properties_all if self.hasDefined(propertyName)]
 
     def get_asDict_allProperties(self, ordered: bool = False) -> Union[Dict, OrderedDict]:
         dictClass = dict

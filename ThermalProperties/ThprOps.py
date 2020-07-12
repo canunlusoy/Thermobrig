@@ -3,9 +3,35 @@ from pandas import DataFrame
 from typing import Union, Dict, Tuple
 from bisect import bisect_left, bisect_right
 
-from Utilities.Exceptions import FeatureNotAvailableError
+from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError
 from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin
 from ThermalProperties.States import StatePure
+
+
+def get_saturationTemperature_atP(materialPropertyDF: DataFrame, P: float) -> float:
+    """Returns the saturation temperature at the provided pressure. **Interpolates** if state not available at given pressure."""
+    saturatedStates = materialPropertyDF.query('P == {0} and 0 <= x <= 1'.format(P))
+    if not saturatedStates.empty:
+        saturatedStates_temperatures = saturatedStates['T'].to_list()
+        sample_saturationTemperature = saturatedStates_temperatures[0]
+        assert all(saturationTemperature == sample_saturationTemperature for saturationTemperature in saturatedStates_temperatures), 'ThDataError: Not all saturated states at P = {0} are at the same temperature! - All saturated states are expected to occur at same T & P'.format(P)
+        return sample_saturationTemperature
+    else:
+        satLiq_atP = interpolate_onSaturationCurve(materialPropertyDF, interpolate_by='P', interpolate_at=P, endpoint='f')
+        return satLiq_atP.T
+
+
+def get_saturationPressure_atT(materialPropertyDF: DataFrame, T: float) -> float:
+    """Returns the saturation pressure at the provided temperature. **Interpolates** if state not available at given temperature."""
+    saturatedStates = materialPropertyDF.query('T == {0} and 0 <= x <= 1'.format(T))
+    if not saturatedStates.empty:
+        saturatedStates_pressures = saturatedStates['P'].to_list()
+        sample_saturationpressure = saturatedStates_pressures[0]
+        assert all(saturationPressure == sample_saturationpressure for saturationPressure in saturatedStates_pressures), 'ThDataError: Not all saturated states at T = {0} are at the same pressure! - All saturated states are expected to occur at same T & P'.format(T)
+        return sample_saturationpressure
+    else:
+        satLiq_atT = interpolate_onSaturationCurve(materialPropertyDF, interpolate_by='T', interpolate_at=T, endpoint='f')
+        return satLiq_atT.T
 
 
 def get_saturationPropts(materialPropertyDF: DataFrame, P: Union[float, int] = float('nan'), T: Union[float, int] = float('nan')) -> Tuple[StatePure, StatePure]:
@@ -118,17 +144,89 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
         queryTerm = '{0} <= {1} <= {2} and {3} <= {4} <= {5}'.format(refProp1_min, refProp1_name, refProp1_max, refProp2_min, refProp2_name, refProp2_max)
         return materialPropertyDF.query(queryTerm)
 
-    assert state.isFullyDefinable(), 'State not fully definable: need at least 2 intensive properties to be known.'
+    assert state.isFullyDefinable(), 'State not fully definable: need at least 2 (independent) intensive properties to be known.'
     availableProperties = state.get_asDict_definedProperties()
+    availablePropertiesNames = list(availableProperties.keys())
+    non_referenceProperties = [propertyName for propertyName in availablePropertiesNames if propertyName not in ['P', 'T']]
 
-    # Determine if saturated (mixture) or not
-    # if not isNumeric(state.x):
-    #
+    # Check if saturated
+    if isNumeric(state.x):
+        # Quality already provided
+        saturated = (0 <= state.x <= 1)
+    else:
+        # Quality unknown
 
-    saturated = (0 <= state.x <= 1)
+        if all(propertyName in availablePropertiesNames for propertyName in ['P', 'T']):
+            # If both P & T are provided, check if T is above saturation temperature at that P
+            # Using the fact that P & T are not independent for saturated states - substance is saturated at known temperature and pressure
+
+            saturationTemperature_atP = get_saturationTemperature_atP(materialPropertyDF, P=state.P)
+            # TODO - Handle: no saturated state may exist at given P!
+
+            if state.T == saturationTemperature_atP:
+                # state.x needs to be calculated
+                saturated = True
+            elif state.T > saturationTemperature_atP:
+                state.x = 2
+                saturated = False
+            elif state.T < saturationTemperature_atP:
+                state.x = -1
+                saturated = False
+
+
+
+        elif any(propertyName in availablePropertiesNames for propertyName in ['P', 'T']):
+            # Are there saturated states at the provided P/T?
+            # If so, is provided u/h/s/mu between saturation limits at the provided T/P?
+
+
+
+
+            satLiq_atRef, satVap_atRef = get_saturationPropts(materialPropertyDF, P=state.P, T=state.T)
+
+            # Define lambda function to check if value of a non-reference property (i.e. property other than P/T) is within the saturated mixture limits
+            isWithinSaturationZone = lambda propertyName, propertyValue: getattr(satLiq_atRef, propertyName) <= propertyValue <= getattr(satVap_atRef, propertyName)
+            isSuperheated = lambda propertyName, propertyValue: getattr(satVap_atRef, propertyName) < propertyValue
+            isSubcooled = lambda propertyName, propertyValue: propertyValue < getattr(satLiq_atRef, propertyName)
+
+            # Check if the first available non-reference property has value within saturation limits
+            saturated = isWithinSaturationZone(non_referenceProperties[0], getattr(state, non_referenceProperties[0]))
+
+            # All non-reference properties should give the same result - if the first one is found to be within saturation limits, all should be so.
+            assert all(saturated == isWithinSaturationZone(propertyName, getattr(state, propertyName)) for propertyName in non_referenceProperties), 'ThDataError: While defining state {0}, property {1} suggests saturated state (value within saturation limits), but other properties do not.'.format(state, non_referenceProperties[0])
+            if saturated:
+                # Calculate state.x using the first available non-reference property
+                calcProptName, calcProptValue = non_referenceProperties[0], availableProperties[non_referenceProperties[0]]
+                state.x = (calcProptValue - getattr(satLiq_atRef, calcProptName))/(getattr(satVap_atRef, calcProptName) - getattr(satLiq_atRef, calcProptName))
+
+            else:
+                superheated = isSuperheated(non_referenceProperties[0], getattr(state, non_referenceProperties[0]))
+                # Check if first non-ref propt suggests suph, then assert all other non-ref propts to suggest the same
+                assert all(superheated == isSuperheated(propertyName, getattr(state, propertyName)) for propertyName in non_referenceProperties), 'ThDataError: While defining state {0}, property {1} suggests superheated state (value above saturation limits), but other properties do not.'.format(state, non_referenceProperties[0])
+
+                if superheated:
+                    state.x = 2
+                else:
+                    subcooled = isSubcooled(non_referenceProperties[0], getattr(state, non_referenceProperties[0]))
+                    # Check if first non-ref propt suggests subc, then assert all other non-ref propts to suggest the same
+                    assert all(subcooled == isSubcooled(propertyName, getattr(state, propertyName)) for propertyName in non_referenceProperties), 'ThDataError: While defining state {0}, property {1} suggests subcooled state (value below saturation limits), but other properties do not.'.format(state, non_referenceProperties[0])
+
+                    if subcooled:
+                        state.x = -1
+                    else:
+                        raise AssertionError('Error: While checking if state is saturated using P or T as reference, could not determine if state is subcooled / saturated / superheated.')
+
+        else:
+            # Determine if saturated or not using properties other than P/T - P/T not available
+            saturated = False
+            pass
+
+        # At the end of this else block, state.x should have been defined.
+        assert isNumeric(state.x)
 
     if saturated:
-        if any(propertyName in availableProperties for propertyName in ['P', 'T']):
+        # state.x must have been determined above
+        if any(propertyName in availablePropertiesNames for propertyName in ['P', 'T']):
             satLiq_atP, satVap_atP = get_saturationPropts(materialPropertyDF, P=state.P, T=state.T)  # either state.P or state.T has to be known - pass both, it is ok if one is NaN
             if state.x == 0:
                 return satLiq_atP
@@ -136,11 +234,14 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
                 return satVap_atP
             else:  # saturated mixture with unique quality (not 0 or 1)
                 return interpolate_betweenPureStates(satLiq_atP, satVap_atP, interpolate_at={'x': state.x})
+        else:
+            # Determine saturated state with properties other than P/T
+            pass
 
     elif not saturated:  # material is not in a saturated mixture state
 
         if superheated := state.x == 2:
-            if isNumeric(state.P) and isNumeric(state.T) and len(suphVaps_atP := materialPropertyDF.query('P == {0} and x == 2'.format(state.P)).index) != 0:
+            if isNumeric(state.P) and isNumeric(state.T) and len((suphVaps_atP := materialPropertyDF.query('P == {0} and x == 2'.format(state.P))).index) != 0:
                 suphVaps_atP = suphVaps_atP.sort_values('T')
                 suphVaps_atP_temperatures = suphVaps_atP['T'].to_list()
 
@@ -154,6 +255,8 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
         (refProp1_name, refProp1_value), (refProp2_name, refProp2_value) = list(availableProperties.items())[:2]  # first 2 properties taken as reference properties - will use to find values of others
 
         initial_ptolerance = 0.5
+
+        # TODO - Query to include quality!
         matchingStates = queryNearbyStates(refProp1_name, refProp1_value, initial_ptolerance, refProp2_name, refProp2_value, initial_ptolerance)
 
         if number_ofMatches := len(matchingStates.index) == 1:
