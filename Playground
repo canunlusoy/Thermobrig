@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from pandas import DataFrame
+import numpy as np
 
 from Utilities.FileOps import read_Excel_DF, process_MaterialPropertyDF
 
@@ -12,7 +13,11 @@ MaterialPropertyDF = process_MaterialPropertyDF(dataFile)
 
 
 
-
+propertyNames = {'P': 'Pressure (kPa)',
+                 'T': 'Temperature (°C)',
+                 'h': 'Specific Enthalpy (kJ/kg)',
+                 's': 'Specific Entropy (kJ/kgK)',
+                 'u': 'Specific Internal Energy (kJ/kg)'}
 
 
 def plot_scatter(x_parameter: str, y_parameter: str, color_parameter: str):
@@ -25,7 +30,18 @@ def plot_scatter(x_parameter: str, y_parameter: str, color_parameter: str):
         for parameter in parameterLists:
             parameterLists[parameter].append(float(MaterialPropertyDF.iloc[rowIndex][parameter]))
 
+
     axes.scatter(x_data, y_data, c=z_data, cmap='gist_rainbow')
+
+
+
+    for parameter, axMethod in [(x_parameter, axes.set_xlabel), (y_parameter, axes.set_ylabel)]:
+        if parameter in propertyNames:
+            # setattr(plt, axMethod, propertyNames[parameter])
+            axMethod(propertyNames[parameter])
+
     plt.show()
 
-plot_scatter('s', 'T', 'P')
+
+
+plot_scatter('T', 'P', 's')

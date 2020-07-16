@@ -1,5 +1,8 @@
 from pandas import read_excel, DataFrame
-from typing import Union, List
+from pandas.api.extensions import register_dataframe_accessor
+from typing import Union, List, Dict
+
+from ThermalProperties.States import StatePure
 
 
 def read_Excel_DF(filepath: str, worksheet: Union[str, int] = None, indexColumn: int = None, headerRow: int = None, skipRows: List = None, squeeze: bool = False):
@@ -15,6 +18,52 @@ def read_Excel_DF(filepath: str, worksheet: Union[str, int] = None, indexColumn:
     return read_excel(filepath, **kwargs)
 
 
+@register_dataframe_accessor('mp')
+class MaterialPropertyAccessor:
+
+    def __init__(self, mpDF: DataFrame):
+        self._mpDF = mpDF
+        self._determine_criticalPointProperties()
+
+    def _determine_criticalPointProperties(self):
+        # Assumes the saturated state with the maximum temperature is the critical point - users should provide many saturated states and ideally the critical point state in their data as well
+        # This assumption will return very inaccurate critical point properties if users provide data of states significantly below critical point properties
+
+        saturatedStates = self._mpDF.query('0 <= x <= 1')
+        maximumTemperature = saturatedStates['T'].max()
+        criticalPointCandidates = saturatedStates.query('T == {0}'.format(maximumTemperature))
+        assert not criticalPointCandidates.empty, 'ThDataError: No state found when looking for the saturated state with the maximum temperature. Are there any saturated states provided in the data?'
+
+        self.criticalPoint = StatePure().init_fromDFRow(criticalPointCandidates.head(1))
+
+
+@register_dataframe_accessor('cq')
+class CustomQueryAccessor:
+
+    def __init__(self, mpDF: DataFrame):
+        self._mpDF = mpDF
+
+    @property
+    def superheatedStates(self) -> DataFrame:
+        """Returns superheated states, identified by a quality of 2."""
+        return self._mpDF.query('x == 2')
+
+    def cQuery(self, conditions: Dict) -> DataFrame:
+        queryString_components = []
+
+        for columnName, columnValue in conditions.items():
+            if isinstance(columnValue, tuple):
+                queryString_components.append('{0} <= {1} <= {2}'.format(columnValue[0], columnName, columnValue[1]))
+            elif any(isinstance(columnValue, _type) for _type in [float, int]):
+                queryString_components.append('{0} == {1}'.format(columnName, columnValue))
+
+        queryString = str.join(' and ', queryString_components)
+        return self._mpDF.query(queryString)
+
+
+
 def process_MaterialPropertyDF(materialPropertyDF: DataFrame):
     # TODO
+    # TODO - Determine critical temperature and pressure
+
     return materialPropertyDF

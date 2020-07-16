@@ -259,3 +259,21 @@ class TestStateDefineMethods_Water(unittest.TestCase):
         print('Expected: {0}'.format(expected_s))
         print('Received: {0}'.format(testState.s))
 
+    def test_suphVap_07(self):
+        # No saturated state exists at the P&T
+
+        statePropt = {'P': 30000, 'T': 375}  # P & T above critical values - no saturated mixture exists
+        testState = StatePure(**statePropt)
+        testState = fullyDefine_StatePure(testState, MaterialPropertyDF)
+
+        expected_h = 1791.9
+        expected_s = 3.9313
+
+        self.assertTrue(isWithin(testState.h, 3, '%', expected_h))
+        print('Expected: {0}'.format(expected_h))
+        print('Received: {0}'.format(testState.h))
+
+        self.assertTrue(isWithin(testState.s, 3, '%', expected_s))
+        print('Expected: {0}'.format(expected_s))
+        print('Received: {0}'.format(testState.s))
+

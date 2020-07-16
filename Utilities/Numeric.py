@@ -1,6 +1,8 @@
 from math import isnan
 from typing import Union, Tuple, List
+from bisect import bisect_left, bisect_right
 
+from Utilities.Exceptions import NeedsExtrapolationError
 
 def isNumeric(value):
     return not isnan(value)
@@ -31,3 +33,18 @@ def isWithin(value_1: float, within_value: float, within_unit: str, value_2: flo
         return 100 * abs(value_1 - value_2)/((value_1 + value_2) / 2) <= within_value
     else:
         return None
+
+
+def get_surroundingValues(dataList: List, value: Union[float, int]) -> Tuple:
+
+    valueBelow = dataList[bisect_left(dataList, value) - 1]
+    if valueBelow > value:
+        raise NeedsExtrapolationError('valueBelow could not be found')
+
+    try:
+        valueAbove = dataList[bisect_right(dataList, value)]
+    except IndexError:
+        raise NeedsExtrapolationError('valueAbove could not be found.')
+
+    assert valueBelow <= value <= valueAbove
+    return valueBelow, valueAbove
