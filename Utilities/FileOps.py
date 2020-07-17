@@ -3,6 +3,7 @@ from pandas.api.extensions import register_dataframe_accessor
 from typing import Union, List, Dict
 
 from ThermalProperties.States import StatePure
+from Utilities.Numeric import isNumeric
 
 
 def read_Excel_DF(filepath: str, worksheet: Union[str, int] = None, indexColumn: int = None, headerRow: int = None, skipRows: List = None, squeeze: bool = False):
@@ -53,7 +54,13 @@ class CustomQueryAccessor:
 
         for columnName, columnValue in conditions.items():
             if isinstance(columnValue, tuple):
-                queryString_components.append('{0} <= {1} <= {2}'.format(columnValue[0], columnName, columnValue[1]))
+                if all(isNumeric(value) for value in columnValue):
+                    queryString_components.append('{0} <= {1} <= {2}'.format(columnValue[0], columnName, columnValue[1]))
+                elif isinstance(sign:= columnValue[0], str) and isNumeric(columnValue[1]):
+                    if any(sign == ltSign for ltSign in ['<', '<=', '>', '>=']):
+                        queryString_components.append('{0} {1} {2}'.format(columnName, sign, columnValue[0]))
+                    else:
+                        raise AssertionError('Query string could not be resolved.')
             elif any(isinstance(columnValue, _type) for _type in [float, int]):
                 queryString_components.append('{0} == {1}'.format(columnName, columnValue))
 

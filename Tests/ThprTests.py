@@ -277,3 +277,15 @@ class TestStateDefineMethods_Water(unittest.TestCase):
         print('Expected: {0}'.format(expected_s))
         print('Received: {0}'.format(testState.s))
 
+    def test_suphVap_08(self):
+        # Superheated state requiring double interpolation
+
+        statePropt = {'P': 20, 'T': 625}  # P & T above critical values - no saturated mixture exists
+        testState = StatePure(**statePropt)
+        testState = fullyDefine_StatePure(testState, MaterialPropertyDF)
+
+        expected_mu = 33.159
+
+        self.assertTrue(isWithin(testState.mu, 3, '%', expected_mu))
+        print('Expected: {0}'.format(expected_mu))
+        print('Received: {0}'.format(testState.mu))

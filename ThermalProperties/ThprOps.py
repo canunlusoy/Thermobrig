@@ -1,8 +1,10 @@
 from pandas import DataFrame
 
 from typing import Union, Dict, Tuple, List
+from bisect import bisect_left
+from time import time
 
-from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError
+from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError, NeedsExtrapolationError
 from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin, get_surroundingValues
 from ThermalProperties.States import StatePure
 
@@ -157,7 +159,7 @@ def interpolate_onSaturationCurve(materialPropertyDF: DataFrame, interpolate_by:
     return satState_atProptVal
 
 
-def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
+def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
 
     def query_nearbyStates(refProp1_name: str, refProp1_value: float, refProp1_ptolerance: float,
                            refProp2_name: str, refProp2_value: float, refProp2_ptolerance: float,
@@ -166,7 +168,7 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
         (refProp1_min, refProp1_max) = get_rangeEndpoints(refProp1_value, percentUncertainty=refProp1_ptolerance)
         (refProp2_min, refProp2_max) = get_rangeEndpoints(refProp2_value, percentUncertainty=refProp2_ptolerance)
         queryTerm = '{0} <= {1} <= {2} and {3} <= {4} <= {5} and {6} == {7}'.format(refProp1_min, refProp1_name, refProp1_max, refProp2_min, refProp2_name, refProp2_max, addCond1_name, addCond1_value)
-        return materialPropertyDF.query(queryTerm)
+        return mpDF.query(queryTerm)
 
     assert state.isFullyDefinable(), 'State not fully definable: need at least 2 (independent) intensive properties to be known.'
     availableProperties = state.get_asDict_definedProperties()
@@ -190,7 +192,7 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
             # If both P & T are provided, check if T is above saturation temperature at that P
             # Using the fact that P & T are not independent for saturated states - substance is saturated at known temperature and pressure
 
-            saturationTemperature_atP = get_saturationTemperature_atP(materialPropertyDF, P=state.P)  # This can handle pressures at which no distinct saturation process exists
+            saturationTemperature_atP = get_saturationTemperature_atP(mpDF, P=state.P)  # This can handle pressures at which no distinct saturation process exists
 
             if state.T == saturationTemperature_atP:
                 # state.x needs to be calculated
@@ -209,13 +211,13 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
             couldBe_saturatedMixture = False
 
             if P_available:
-                if state.P > materialPropertyDF.mp.criticalPoint.P:
+                if state.P > mpDF.mp.criticalPoint.P:
                     isSaturatedMixture = False
                     state.x = 2
                 else:
                     couldBe_saturatedMixture = True
             elif T_available:
-                if state.T > materialPropertyDF.mp.criticalPoint.T:
+                if state.T > mpDF.mp.criticalPoint.T:
                     isSaturatedMixture = False
                     state.x = 2
                 else:
@@ -225,7 +227,7 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
             if couldBe_saturatedMixture:
                 # Is provided u/h/s/mu between saturation limits at the provided T/P?
 
-                satLiq_atRef, satVap_atRef = get_saturationPropts(materialPropertyDF, P=state.P, T=state.T)
+                satLiq_atRef, satVap_atRef = get_saturationPropts(mpDF, P=state.P, T=state.T)
 
                 # Define lambda function to check if value of a non-reference property (i.e. property other than P/T) is within the saturated mixture limits
                 isWithinSaturationZone = lambda propertyName, propertyValue: getattr(satLiq_atRef, propertyName) <= propertyValue <= getattr(satVap_atRef, propertyName)
@@ -271,7 +273,7 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
     # Fully define state: State is saturated (mixture)
     if isSaturatedMixture:
         if P_available or T_available:
-            satLiq_atP, satVap_atP = get_saturationPropts(materialPropertyDF, P=state.P, T=state.T)  # either state.P or state.T has to be known - pass both, it is ok if one is NaN
+            satLiq_atP, satVap_atP = get_saturationPropts(mpDF, P=state.P, T=state.T)  # either state.P or state.T has to be known - pass both, it is ok if one is NaN
             if state.x == 0:
                 return satLiq_atP
             elif state.x == 1:
@@ -287,12 +289,12 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
         # Superheated vapor
         if state.x == 2:
 
-            refPropt1, refPropt2 = availablePropertiesNames[:2]  # first 2 available properties used as reference
-            refPropt1_queryValue, refPropt2_queryValue = [availableProperties[property] for property in [refPropt1, refPropt2]]
-            refPropts = [(refPropt1, refPropt1_queryValue), (refPropt2, refPropt2_queryValue)]
+            refPropt1_name, refPropt2_name = availablePropertiesNames[:2]  # first 2 available properties used as reference
+            refPropt1_queryValue, refPropt2_queryValue = [availableProperties[property] for property in [refPropt1_name, refPropt2_name]]
+            refPropts = [(refPropt1_name, refPropt1_queryValue), (refPropt2_name, refPropt2_queryValue)]
 
             # Check if exact state available
-            exactState = materialPropertyDF.cq.cQuery({refPropt1: refPropt1_queryValue, refPropt2: refPropt2_queryValue})
+            exactState = mpDF.cq.cQuery({refPropt1_name: refPropt1_queryValue, refPropt2_name: refPropt2_queryValue})
 
             if not exactState.empty:
                 if len(exactState.index) == 1:
@@ -310,7 +312,7 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
                 # Check if either refPropt1_queryValue or refPropt2_queryValue has data available
                 for refProptCurrent_index, (refProptCurrent_name, refProptCurrent_queryValue) in enumerate(refPropts):
 
-                    suphVaps_at_refProptCurrent = materialPropertyDF.cq.cQuery({refProptCurrent_name: refProptCurrent_queryValue, 'x': 2})
+                    suphVaps_at_refProptCurrent = mpDF.cq.cQuery({refProptCurrent_name: refProptCurrent_queryValue, 'x': 2})
 
                     if not suphVaps_at_refProptCurrent.empty:
                         # If so, get refProptOther and its interpolation gap (gap between available values)
@@ -349,30 +351,53 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
                     refProptOther_queryValue = availableProperties[refProptOther_name]
                     refProptOther_valueBelow, refProptOther_valueAbove = _1d_interpolationCheck[refPropt_name]['refProptOther']['surroundingValues']
 
-                    state_with_refProptOther_valueBelow = StatePure().init_fromDFRow(materialPropertyDF.cq.cQuery({refPropt_name: refPropt_value,
-                                                                                                                   refProptOther_name: refProptOther_valueBelow, 'x': 2}))
+                    state_with_refProptOther_valueBelow = StatePure().init_fromDFRow(mpDF.cq.cQuery({refPropt_name: refPropt_value,
+                                                                                                     refProptOther_name: refProptOther_valueBelow, 'x': 2}))
 
-                    state_with_refProptOther_valueAbove = StatePure().init_fromDFRow(materialPropertyDF.cq.cQuery({refPropt_name: refPropt_value,
-                                                                                                                   refProptOther_name: refProptOther_valueAbove, 'x': 2}))
+                    state_with_refProptOther_valueAbove = StatePure().init_fromDFRow(mpDF.cq.cQuery({refPropt_name: refPropt_value,
+                                                                                                     refProptOther_name: refProptOther_valueAbove, 'x': 2}))
 
                     return interpolate_betweenPureStates(state_with_refProptOther_valueBelow, state_with_refProptOther_valueAbove, interpolate_at={refProptOther_name: refProptOther_queryValue})
 
                 else:
                     # Double Interpolation needed
+                    available_refProptPairs = list(mpDF.cq.superheatedStates[[refPropt1_name, refPropt2_name]].itertuples(index=False, name=None))
 
-                    for refProptCurrent_index, (refProptCurrent_name, refProptCurrent_queryValue) in enumerate(refPropts):
-                        refProptOther_name, refProptOther_queryValue = refPropts[refProptCurrent_index - 1]
+                    xVals = sorted(set(pair[0] for pair in available_refProptPairs))
+                    xVals_available_yVals = {xVal: set(pair[1] for pair in available_refProptPairs if pair[0] == xVal) for xVal in xVals}
 
-                        # refProptCurrent: Find refProptCurrent_valueBelow & refProptCurrent_valueAbove
-                        refProptCurrent_valueBelow, refProptCurrent_valueAbove = get_surroundingValues(materialPropertyDF.cq.superheatedStates[refProptCurrent_name].to_list(), refProptCurrent_queryValue)
+                    xVals_less = xVals[: (index := bisect_left(xVals, refPropt1_queryValue))]
+                    xVals_more = xVals[index:]
 
+                    minimumDiagonal = 10**5
+                    minimumDiagonal_surroundingValues = {}
 
-                        # refPropt1: Find refPropt1_valueBelow & refPropt1_valueAbove
-                        refPropt1_valueBelow, refPropt1_valueAbove = get_surroundingValues(materialPropertyDF.cq.superheatedStates[refPropt1].to_list(), refPropt1_queryValue)
+                    t1 = time()
+                    for xVal_less in reversed(xVals_less):
 
+                        for xVal_more in xVals_more:
+                            assert xVal_less <= refPropt1_queryValue <= xVal_more
+
+                            xVal_less_available_yVals = xVals_available_yVals[xVal_less]
+                            xVal_more_available_yVals = xVals_available_yVals[xVal_more]
+
+                            commonlyAvailable_yVals = sorted(xVal_less_available_yVals.intersection(xVal_more_available_yVals))
+                            if len(commonlyAvailable_yVals) < 2:
+                                continue
+
+                            try:
+                                yVal_below, yVal_above = get_surroundingValues(commonlyAvailable_yVals, refPropt2_queryValue)
+                            except NeedsExtrapolationError:
+                                continue
+
+                            if diagonal := ((xVal_more - xVal_less)**2 + (yVal_above - yVal_below)**2)**0.5 < minimumDiagonal:
+                                minimumDiagonal = diagonal
+                                minimumDiagonal_surroundingValues.update({refPropt1_name: (xVal_less, xVal_more), refPropt2_name: (yVal_below, yVal_above)})
+
+                    t2 = time()
+                    print('TimeNotification: 2DInterpolation - Time to iteratively find smallest suitable interpolation interval: {0} seconds'.format((t2-t1)/1000))
 
                     # refPropt2: Find refPropt2_valueBelow & refPropt2_valueAbove @ both (refPropt1_valueBelow and refPropt1_valueAbove)
-
 
                     # Construct:
                     #                      | refPropt1_valueBelow | refPropt1_queryValue | refPropt1_valueAbove
@@ -383,6 +408,21 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
 
                     # At each valueBelow / valueAfter query, make sure they exist! If one does not, needs extrapolation - not going to do it!
 
+                    rP1b_rP2b = StatePure().init_fromDFRow(mpDF.cq.superheatedStates.cq.cQuery({refPropt1_name: minimumDiagonal_surroundingValues[refPropt1_name][0],
+                                                                                                refPropt2_name: minimumDiagonal_surroundingValues[refPropt2_name][0]}))
 
-                    pass
+                    rP1b_rP2a = StatePure().init_fromDFRow(mpDF.cq.superheatedStates.cq.cQuery({refPropt1_name: minimumDiagonal_surroundingValues[refPropt1_name][0],
+                                                                                                refPropt2_name: minimumDiagonal_surroundingValues[refPropt2_name][1]}))
+
+                    rP1a_rP2b = StatePure().init_fromDFRow(mpDF.cq.superheatedStates.cq.cQuery({refPropt1_name: minimumDiagonal_surroundingValues[refPropt1_name][1],
+                                                                                                refPropt2_name: minimumDiagonal_surroundingValues[refPropt2_name][0]}))
+
+                    rP1a_rP2a = StatePure().init_fromDFRow(mpDF.cq.superheatedStates.cq.cQuery({refPropt1_name: minimumDiagonal_surroundingValues[refPropt1_name][1],
+                                                                                                refPropt2_name: minimumDiagonal_surroundingValues[refPropt2_name][1]}))
+                    
+                    rP1b_rP2q = interpolate_betweenPureStates(rP1b_rP2b, rP1b_rP2a, interpolate_at={refPropt2_name: refPropt2_queryValue})
+                    rP1a_rP2q = interpolate_betweenPureStates(rP1a_rP2b, rP1a_rP2a, interpolate_at={refPropt2_name: refPropt2_queryValue})
+                    
+                    rP1q_rP2q = interpolate_betweenPureStates(rP1b_rP2q, rP1a_rP2q, interpolate_at={refPropt1_name: refPropt1_queryValue})
+                    return rP1q_rP2q
 
