@@ -8,6 +8,22 @@ def isNumeric(value):
     return not isnan(value)
 
 
+def get_surroundingValues(dataList: List, value: Union[float, int]) -> Tuple:
+
+    dataList = sorted(dataList)
+    valueBelow = dataList[bisect_left(dataList, value) - 1]
+    if valueBelow > value:
+        raise NeedsExtrapolationError('valueBelow could not be found')
+
+    try:
+        valueAbove = dataList[bisect_right(dataList, value)]
+    except IndexError:
+        raise NeedsExtrapolationError('valueAbove could not be found.')
+
+    assert valueBelow <= value <= valueAbove
+    return valueBelow, valueAbove
+
+
 def get_rangeEndpoints(value: Union[float, int], percentUncertainty: Union[float, int]) -> Tuple:
     halfRange = value*percentUncertainty*(10**(-2))
     return (value - halfRange, value + halfRange)
@@ -35,16 +51,3 @@ def isWithin(value_1: float, within_value: float, within_unit: str, value_2: flo
         return None
 
 
-def get_surroundingValues(dataList: List, value: Union[float, int]) -> Tuple:
-
-    valueBelow = dataList[bisect_left(dataList, value) - 1]
-    if valueBelow > value:
-        raise NeedsExtrapolationError('valueBelow could not be found')
-
-    try:
-        valueAbove = dataList[bisect_right(dataList, value)]
-    except IndexError:
-        raise NeedsExtrapolationError('valueAbove could not be found.')
-
-    assert valueBelow <= value <= valueAbove
-    return valueBelow, valueAbove

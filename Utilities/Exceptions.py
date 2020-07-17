@@ -8,9 +8,9 @@ class FeatureNotAvailableError(Exception):
 
 class NoSaturatedStateError(Exception):
     def __init__(self):
-        super(FeatureNotAvailableError, self).__init__()
+        super(NoSaturatedStateError, self).__init__()
 
 
 class NeedsExtrapolationError(Exception):
     def __init__(self, message: str):
-        super(FeatureNotAvailableError, self).__init__(message)
+        super(NeedsExtrapolationError, self).__init__(message)

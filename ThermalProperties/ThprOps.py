@@ -287,73 +287,102 @@ def fullyDefine_StatePure(state: StatePure, materialPropertyDF: DataFrame):
         # Superheated vapor
         if state.x == 2:
 
+            refPropt1, refPropt2 = availablePropertiesNames[:2]  # first 2 available properties used as reference
+            refPropt1_queryValue, refPropt2_queryValue = [availableProperties[property] for property in [refPropt1, refPropt2]]
+            refPropts = [(refPropt1, refPropt1_queryValue), (refPropt2, refPropt2_queryValue)]
+
             # Check if exact state available
+            exactState = materialPropertyDF.cq.cQuery({refPropt1: refPropt1_queryValue, refPropt2: refPropt2_queryValue})
 
+            if not exactState.empty:
+                if len(exactState.index) == 1:
+                    return StatePure().init_fromDFRow(exactState)
+                else:
+                    # Found multiple states with same P & T - need to pick one
+                    # TODO - Pick one
+                    raise AssertionError('NotImplementedError: Multiple states satisfying same conditions found.')
 
-            # Prepare for double interpolation
+            # Exact state not available
+            else:
+                # Check if 1D interpolation possible
+                _1d_interpolationCheck = {}
 
                 # Check if either refPropt1_queryValue or refPropt2_queryValue has data available
-                # If so, check if other refPropt has values at that value of the above picked refPropt
+                for refProptCurrent_index, (refProptCurrent_name, refProptCurrent_queryValue) in enumerate(refPropts):
 
-                # refPropt1: Find refPropt1_valueBelow & refPropt1_valueAbove
-                # refPropt2: Find refPropt2_valueBelow & refPropt2_valueAbove @ both (refPropt1_valueBelow and refPropt1_valueAbove)
+                    suphVaps_at_refProptCurrent = materialPropertyDF.cq.cQuery({refProptCurrent_name: refProptCurrent_queryValue, 'x': 2})
 
-                # Construct:
-                #                      | refPropt1_valueBelow | refPropt1_queryValue | refPropt1_valueAbove
-                # -----------------------------------------------------------------------------------------
-                # refPropt2_valueBelow |         FIND         |                      |         FIND
-                # refPropt2_queryValue |  CALCULATE (1Dintp)  | >FINAL  CALCULATION< |  CALCULATE (1Dintp)
-                # refPropt2_valueAfter |         FIND         |                      |         FIND
+                    if not suphVaps_at_refProptCurrent.empty:
+                        # If so, get refProptOther and its interpolation gap (gap between available values)
 
-                # At each valueBelow / valueAfter query, make sure they exist! If one does not, needs extrapolation - not going to do it!
+                        refProptOther_name, refProptOther_queryValue = refPropts[refProptCurrent_index - 1]
+                        values_of_refProptOther = suphVaps_at_refProptCurrent[refProptOther_name].to_list()
+
+                        refProptOther_valueBelow, refProptOther_valueAbove = get_surroundingValues(values_of_refProptOther, refProptOther_queryValue)
+                        gap_betweenValues = abs(refProptOther_valueAbove - refProptOther_valueBelow)
+
+                        _1d_interpolationCheck.update({refProptCurrent_name: {'1D_interpolatable': True, 'gap': gap_betweenValues,
+                                                                              'refProptOther': {'name': refProptOther_name, 'surroundingValues': (refProptOther_valueBelow, refProptOther_valueAbove)}}})
+
+                    else:
+                        _1d_interpolationCheck.update({refProptCurrent_name: {'1D_interpolatable': False, 'gap': None}})
+
+                # Pick reference property to hold constant: pick the one where the interpolation interval for the other refPropt is minimum
+                # Future: consider picking one where the gap between query value and an endpoint is the minimum
+
+                minimumGap = 10**5  # arbitrary large value
+                refPropt_for_minimumGap_in1Dinterpolation = None
+
+                for refProptCurrent_name in _1d_interpolationCheck:
+                    if _1d_interpolationCheck[refProptCurrent_name]['1D_interpolatable']:
+                        if (gap_of_refProptCurrent := _1d_interpolationCheck[refProptCurrent_name]['gap']) < minimumGap:
+                            minimumGap = gap_of_refProptCurrent
+                            refPropt_for_minimumGap_in1Dinterpolation = refProptCurrent_name
+
+                if refPropt_for_minimumGap_in1Dinterpolation is not None:
+                    # At least one refPropt allows 1D interpolation. If multiple does, the one where the other has the minimum interpolation gap has been picked
+
+                    refPropt_name = refPropt_for_minimumGap_in1Dinterpolation
+                    refPropt_value = availableProperties[refPropt_name]
+
+                    refProptOther_name = _1d_interpolationCheck[refPropt_name]['refProptOther']['name']
+                    refProptOther_queryValue = availableProperties[refProptOther_name]
+                    refProptOther_valueBelow, refProptOther_valueAbove = _1d_interpolationCheck[refPropt_name]['refProptOther']['surroundingValues']
+
+                    state_with_refProptOther_valueBelow = StatePure().init_fromDFRow(materialPropertyDF.cq.cQuery({refPropt_name: refPropt_value,
+                                                                                                                   refProptOther_name: refProptOther_valueBelow, 'x': 2}))
+
+                    state_with_refProptOther_valueAbove = StatePure().init_fromDFRow(materialPropertyDF.cq.cQuery({refPropt_name: refPropt_value,
+                                                                                                                   refProptOther_name: refProptOther_valueAbove, 'x': 2}))
+
+                    return interpolate_betweenPureStates(state_with_refProptOther_valueBelow, state_with_refProptOther_valueAbove, interpolate_at={refProptOther_name: refProptOther_queryValue})
+
+                else:
+                    # Double Interpolation needed
+
+                    for refProptCurrent_index, (refProptCurrent_name, refProptCurrent_queryValue) in enumerate(refPropts):
+                        refProptOther_name, refProptOther_queryValue = refPropts[refProptCurrent_index - 1]
+
+                        # refProptCurrent: Find refProptCurrent_valueBelow & refProptCurrent_valueAbove
+                        refProptCurrent_valueBelow, refProptCurrent_valueAbove = get_surroundingValues(materialPropertyDF.cq.superheatedStates[refProptCurrent_name].to_list(), refProptCurrent_queryValue)
 
 
+                        # refPropt1: Find refPropt1_valueBelow & refPropt1_valueAbove
+                        refPropt1_valueBelow, refPropt1_valueAbove = get_surroundingValues(materialPropertyDF.cq.superheatedStates[refPropt1].to_list(), refPropt1_queryValue)
 
-            if P_available and T_available:
 
-                referenceProperties = [('P', state.P), ('T', state.T)]
+                    # refPropt2: Find refPropt2_valueBelow & refPropt2_valueAbove @ both (refPropt1_valueBelow and refPropt1_valueAbove)
 
-                # If superheated data is available at T / P, interpolate along points at that T / P
-                if any(len( ( suphVaps_atPropt := materialPropertyDF.cq.superheatedStates.query('{0} == {1}'.format(propertyName, propertyValue)) ).index) != 0
-                       for propertyName, propertyValue in referenceProperties):
+
+                    # Construct:
+                    #                      | refPropt1_valueBelow | refPropt1_queryValue | refPropt1_valueAbove
+                    # -----------------------------------------------------------------------------------------
+                    # refPropt2_valueBelow |         FIND         |                      |         FIND
+                    # refPropt2_queryValue |  CALCULATE (1Dintp)  | >FINAL  CALCULATION< |  CALCULATE (1Dintp)
+                    # refPropt2_valueAfter |         FIND         |                      |         FIND
+
+                    # At each valueBelow / valueAfter query, make sure they exist! If one does not, needs extrapolation - not going to do it!
+
 
                     pass
 
-                # Superheated data not available at T / P, double interpolation needed between available points
-
-
-
-
-                # suphVaps_atP = suphVaps_atP.sort_values('T')
-                # suphVaps_atP_temperatures = suphVaps_atP['T'].to_list()
-                #
-                # temperatureBelow, temperatureAbove = suphVaps_atP_temperatures[bisect_left(suphVaps_atP_temperatures, state.T) - 1], suphVaps_atP_temperatures[bisect_right(suphVaps_atP_temperatures, state.T)]
-                # suphVap_belowT = materialPropertyDF.query('x == 2 and P == {0} and T == {1}'.format(state.P, temperatureBelow))
-                # suphVap_aboveT = materialPropertyDF.query('x == 2 and P == {0} and T == {1}'.format(state.P, temperatureAbove))
-                #
-                # return interpolate_betweenPureStates(StatePure().init_fromDFRow(suphVap_belowT), StatePure().init_fromDFRow(suphVap_aboveT), interpolate_at={'T': state.T})
-
-            else:
-                (refProp1_name, refProp1_value), (refProp2_name, refProp2_value) = list(availableProperties.items())[:2]  # first 2 properties taken as reference properties - will use to find values of others
-
-                query_with_ptolerance = lambda ptolerance: query_nearbyStates(refProp1_name, refProp1_value, ptolerance, refProp2_name, refProp2_value, ptolerance, 'x', state.x)
-
-                ptolerance = 0.5
-                ptoleranceSteps = 0.25
-                matchingStates = query_with_ptolerance(ptolerance)
-                number_ofMatches = lambda: len(matchingStates.index)
-
-                if (number_ofMatches()) == 1:
-                    return StatePure().init_fromDFRow(matchingStates)
-                else:
-                    # TODO
-                    if number_ofMatches() > 1:
-                        # find closest among matches
-                        pass
-
-
-
-                    else:
-                        while number_ofMatches() < 1:
-                            ptolerance += ptoleranceSteps
-                            matchingStates = query_with_ptolerance(ptolerance)
