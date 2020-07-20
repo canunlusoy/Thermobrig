@@ -45,9 +45,14 @@ class CustomQueryAccessor:
         self._mpDF = mpDF
 
     @property
-    def superheatedStates(self) -> DataFrame:
-        """Returns superheated states, identified by a quality of 2."""
+    def suphVaps(self) -> DataFrame:
+        """Returns superheated vapor states, identified by a quality of 2."""
         return self._mpDF.query('x == 2')
+
+    @property
+    def subcLiqs(self) -> DataFrame:
+        """Returns subcooled liquid states, identified by a quality of -1."""
+        return self._mpDF.query('x == -1')
 
     def cQuery(self, conditions: Dict) -> DataFrame:
         queryString_components = []
