@@ -13,11 +13,8 @@ dataFile_worksheet = 'WaterUnified'
 dataFile = read_Excel_DF(dataFile_path, worksheet=dataFile_worksheet, headerRow=1, skipRows=[0])
 water_mpDF = process_MaterialPropertyDF(dataFile)
 
-
-
-
-
-
+dataFile = read_Excel_DF(dataFile_path, worksheet='R134aUnified', headerRow=1, skipRows=[0])
+R134a_mpDF = process_MaterialPropertyDF(dataFile)
 
 class TestStateDefineMethods_Water(unittest.TestCase):
 
@@ -504,3 +501,60 @@ class TestStateDefineMethods_Water(unittest.TestCase):
         h6_manual = state5.h + state5.mu * (state6s.P - state5.P)
 
         self.assertTrue(isWithin(h6_manual, 3, '%', 138))
+
+    def test_subcLiq_03(self):
+        # From MECH2201 - A9 Q3 - state 4
+
+        s3 = fullyDefine_StatePure(StatePure(P=6, x=0), water_mpDF)
+        s4 = fullyDefine_StatePure(StatePure(P=150, s=s3.s), water_mpDF)
+
+        s4_h_alt = 151.67  # manua calculation with vdp
+        self.assertTrue(isWithin(s4.h, 3, '%', s4_h_alt))
+
+        s5 = fullyDefine_StatePure(StatePure(P=150, x=0), water_mpDF)
+        s6 = fullyDefine_StatePure(StatePure(P=12000, s=s5.s), water_mpDF)
+
+        s6_h_alt = 479.59
+        self.assertTrue(isWithin(s6.h, 3, '%', s6_h_alt))
+
+
+class TestStateDefineMethods_R134a(unittest.TestCase):
+
+    def CompareResults(self, testState: StatePure, expected: Dict, ptolerance: Union[float, int]):
+        print('\n')
+        for parameter in expected:
+            assert hasattr(testState, parameter)
+            self.assertTrue(isWithin(getattr(testState, parameter), ptolerance, '%', expected[parameter]))
+            print('Expected: {0}'.format(expected[parameter]))
+            print('Received: {0}'.format(getattr(testState, parameter)))
+
+    def test_satVap_01(self):
+        # From MECH3201 - Past Exam Q
+
+        s1 = fullyDefine_StatePure(StatePure(P=200, x=1), R134a_mpDF)
+
+        s7 = fullyDefine_StatePure(StatePure(P=450, x=0), R134a_mpDF)
+
+        s8 = fullyDefine_StatePure(StatePure(P=200, h=s7.h), R134a_mpDF)
+
+        s5 = fullyDefine_StatePure(StatePure(P=1200, x=0), R134a_mpDF)
+
+        sM = fullyDefine_StatePure(StatePure(P=450, h=s5.h), R134a_mpDF)
+
+        s3 = fullyDefine_StatePure(StatePure(P=450, x=1), R134a_mpDF)
+
+        self.CompareResults(s1, {'h': 244.5, 's': 0.93788}, 3)
+        self.CompareResults(s7, {'h': 68.8}, 3)
+        self.CompareResults(s5, {'h': 117.79}, 3)
+        self.CompareResults(sM, {'x': 0.26}, 3)
+        self.CompareResults(s3, {'h': 257.58}, 3)
+
+        s2s = fullyDefine_StatePure(StatePure(P=450, s=s1.s), R134a_mpDF)
+        self.CompareResults(s2s, {'h': 261.09}, 3)
+
+        s9 = fullyDefine_StatePure(StatePure(P=450, h=263.18), R134a_mpDF)
+        self.CompareResults(s9, {'s': 0.9454}, 3)
+
+        s4s = fullyDefine_StatePure(StatePure(s=s9.s, P=1200), R134a_mpDF)
+        self.CompareResults(s4s, {'h': 284.38}, 3)
+
