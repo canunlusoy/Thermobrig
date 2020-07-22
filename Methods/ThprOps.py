@@ -6,7 +6,7 @@ from time import time
 
 from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError, NeedsExtrapolationError
 from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin, get_surroundingValues
-from ThermalProperties.States import StatePure
+from Models.States import StatePure
 
 
 def get_saturationTemperature_atP(mpDF: DataFrame, P: float) -> float:
@@ -129,7 +129,7 @@ def interpolate_betweenPureStates(pureState_1: StatePure, pureState_2: StatePure
     else:
         x = [getattr(pureState_1, referenceProperty), getattr(pureState_2, referenceProperty)]
 
-        for property in StatePure.properties_all:
+        for property in StatePure._properties_all:
             y = [getattr(pureState_1, property), getattr(pureState_2, property)]
             setattr(interpolatedState, property, interpolate_1D(x, y, referenceValue))
 
@@ -348,6 +348,7 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
                         refPropt_for_minimumGap_in1Dinterpolation = refProptCurrent_name
 
             if refPropt_for_minimumGap_in1Dinterpolation is not None:
+                # 1D INTERPOLATION
                 # At least one refPropt allows 1D interpolation. If multiple does, the one where the other has the minimum interpolation gap has been picked
 
                 refPropt_name = refPropt_for_minimumGap_in1Dinterpolation
@@ -366,20 +367,29 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
                 return interpolate_betweenPureStates(state_with_refProptOther_valueBelow, state_with_refProptOther_valueAbove, interpolate_at={refProptOther_name: refProptOther_queryValue})
 
             else:
-                # Double Interpolation needed
+                # DOUBLE INTERPOLATION
                 available_refProptPairs = list(phase_mpDF[[refPropt1_name, refPropt2_name]].itertuples(index=False, name=None))
 
                 # refPropt1 -> x, refPropt2 -> y
+
                 xVals = sorted(set(pair[0] for pair in available_refProptPairs))
                 xVals_available_yVals = {xVal: set(pair[1] for pair in available_refProptPairs if pair[0] == xVal) for xVal in xVals}
 
-                xVals_less = xVals[: (index := bisect_left(xVals, refPropt1_queryValue))]
-                xVals_more = xVals[index:]
+                xVals_less = xVals[: (index := bisect_left(xVals, refPropt1_queryValue))]  # list of available xValues less than query value available in states
+                xVals_more = xVals[index:]  # same for available xValues more than query value
 
                 # Iterate over values of x surrounding the queryValue of x (= refPropt1_queryValue)
                 t1 = time()
 
-                states_at_y_queryValue = []  # list items are states at which y = refPropt2 value is the query value, but x = refPropt1 value is not the query value.
+                # Strategy: First find 2 states: one with x value less than refPropt1_queryValue but with y value = refPropt2_queryValue
+                #                                one with x value more than refPropt1_queryValue but with y value = refPropt2_queryValue
+                # i.e. two states surround the requested state in terms of x.
+                # To find these 2 states, iterate over available xValues more than and less than the x query value. At each iteration, TRY to get the 2 surrounding values of y available for that x.
+                # There may not be 2 values of y available at each x value surrounding the queried y value. In such case, try/except clause continues iteration with a new x value.
+                # Once at an x value, 2 values of y surrounding the y query value are found, interpolate between the states with (xVal, yVal_below) and (xVal, yVal_above)
+                # The outmost for loop does this for both state with x value less than x query value and state with x value more than x query value.
+
+                states_at_y_queryValue = []  # list of states at which y = refPropt2 value is the query value, but x = refPropt1 value is not the query value.
 
                 for available_xValList in [reversed(xVals_less), xVals_more]:
 
@@ -395,13 +405,17 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
                         state_at_xVal_less_yVal_above = StatePure().init_fromDFRow(phase_mpDF.cq.cQuery({refPropt1_name: xVal, refPropt2_name: yVal_above}))
 
                         states_at_y_queryValue.append(interpolate_betweenPureStates(state_at_xVal_less_yVal_below, state_at_xVal_less_yVal_above, interpolate_at={refPropt2_name: refPropt2_queryValue}))
-
                         break
-
-                if len(states_at_y_queryValue) != 2:
-                    raise NeedsExtrapolationError('DataError InputError: No {0} states with values of {1} lower or higher than the query value of {2} are available in the data table.'.format(phase.upper(), refPropt1_name, refPropt1_queryValue))
 
                 t2 = time()
                 print('TimeNotification: 2DInterpolation - Time to iteratively find smallest suitable interpolation interval: {0} seconds'.format((t2 - t1) / 1000))
 
-                return interpolate_betweenPureStates(states_at_y_queryValue[0], states_at_y_queryValue[1], interpolate_at={refPropt1_name: refPropt1_queryValue})
+                if len(states_at_y_queryValue) == 2:
+                    return interpolate_betweenPureStates(states_at_y_queryValue[0], states_at_y_queryValue[1], interpolate_at={refPropt1_name: refPropt1_queryValue})
+                else:
+                    raise NeedsExtrapolationError('DataError InputError: No {0} states with values of {1} lower or higher than the query value of {2} are available in the data table.'.format(phase.upper(), refPropt1_name, refPropt1_queryValue))
+
+                # TODO: For subcooled liquids, can try to approximate state with saturated liquid at same temperature.
+
+def fullyDefine_StateIGas(state, mpDF: DataFrame):
+    pass

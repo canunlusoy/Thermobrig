@@ -1,14 +1,14 @@
 import unittest
 
-from typing import Dict, Union, List
+from typing import Dict, Union
 
-from ThermalProperties.States import StatePure
-from ThermalProperties.ThprOps import fullyDefine_StatePure
+from Models.States import StatePure
+from Methods.ThprOps import fullyDefine_StatePure
 
 from Utilities.FileOps import read_Excel_DF, process_MaterialPropertyDF
 from Utilities.Numeric import isWithin
 
-dataFile_path = r'D:\Belgeler\İşler\Thermobrig\Thermodynamic Property Data\Cengel_Formatted_Unified.xlsx'
+dataFile_path = r'Cengel_Formatted_Unified.xlsx'
 dataFile_worksheet = 'WaterUnified'
 dataFile = read_Excel_DF(dataFile_path, worksheet=dataFile_worksheet, headerRow=1, skipRows=[0])
 water_mpDF = process_MaterialPropertyDF(dataFile)
@@ -532,15 +532,10 @@ class TestStateDefineMethods_R134a(unittest.TestCase):
         # From MECH3201 - Past Exam Q
 
         s1 = fullyDefine_StatePure(StatePure(P=200, x=1), R134a_mpDF)
-
         s7 = fullyDefine_StatePure(StatePure(P=450, x=0), R134a_mpDF)
-
         s8 = fullyDefine_StatePure(StatePure(P=200, h=s7.h), R134a_mpDF)
-
         s5 = fullyDefine_StatePure(StatePure(P=1200, x=0), R134a_mpDF)
-
         sM = fullyDefine_StatePure(StatePure(P=450, h=s5.h), R134a_mpDF)
-
         s3 = fullyDefine_StatePure(StatePure(P=450, x=1), R134a_mpDF)
 
         self.CompareResults(s1, {'h': 244.5, 's': 0.93788}, 3)

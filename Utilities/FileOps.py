@@ -2,7 +2,7 @@ from pandas import read_excel, DataFrame
 from pandas.api.extensions import register_dataframe_accessor
 from typing import Union, List, Dict
 
-from ThermalProperties.States import StatePure
+from Models.States import StatePure
 from Utilities.Numeric import isNumeric
 
 
@@ -55,6 +55,7 @@ class CustomQueryAccessor:
         return self._mpDF.query('x == -1')
 
     def cQuery(self, conditions: Dict) -> DataFrame:
+        """Custom query method - wrapper around the regular DataFrame.query for convenience."""
         queryString_components = []
 
         for columnName, columnValue in conditions.items():
@@ -76,6 +77,4 @@ class CustomQueryAccessor:
 
 def process_MaterialPropertyDF(materialPropertyDF: DataFrame):
     # TODO
-    # TODO - Determine critical temperature and pressure
-
     return materialPropertyDF
