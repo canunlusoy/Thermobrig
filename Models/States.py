@@ -1,5 +1,6 @@
 from pandas import DataFrame
 
+from math import exp
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Union, Dict, List
@@ -87,3 +88,27 @@ class StatePure:
     def init_fromState(self, state: 'StatePure'):
         for propertyName in self._properties_all:
             setattr(self, propertyName, getattr(state, propertyName))
+
+    def copy_fromState(self, referenceState: 'StatePure'):
+        for propertyName in self._properties_all:
+            if isNumeric(referenceValue := getattr(referenceState, propertyName)):
+                setattr(self, propertyName, referenceValue)
+
+    def set(self, setDict: Dict):
+        """Sets values of the properties to the values provided in the dictionary."""
+        for parameterName in setDict:
+            if parameterName in self._properties_all:
+                setattr(self, parameterName, setDict[parameterName])
+
+
+class StateIGas(StatePure):
+
+    # In addition to properties of StatePure
+    s0: float = float('nan')
+    x: int = 2  # superheated vapor / gas
+
+    _properties_regular = ['P', 'T', 'mu', 'h', 'u', 's0']  # ordered in preference to use in interpolation
+    _properties_mixture = ['x']
+    _properties_all = _properties_regular + _properties_mixture
+
+

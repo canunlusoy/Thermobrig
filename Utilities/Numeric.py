@@ -106,3 +106,11 @@ def get_doubleInterpolationRectangle(pairs: List[Tuple], refPropt1_name, refProp
     print('TimeNotification: 2DInterpolation - Time to iteratively find smallest suitable interpolation interval: {0} seconds'.format((t2 - t1) / 1000))
 
     return minimumDiagonal_surroundingValues
+
+
+def to_Kelvin(oValue: Union[float, int], oUnit: str = 'deg_C'):
+    return oValue + 273.15
+
+
+def to_deg_C(oValue: Union[float, int], oUnit: str = 'K'):
+    return oValue - 273.15

@@ -2,8 +2,9 @@ import unittest
 
 from typing import Dict, Union
 
-from Models.States import StatePure
-from Methods.ThprOps import fullyDefine_StatePure
+from Models.States import StatePure, StateIGas
+from Models.Fluids import Fluid, IdealGas
+from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
 
 from Utilities.FileOps import read_Excel_DF, process_MaterialPropertyDF
 from Utilities.Numeric import isWithin
@@ -15,6 +16,11 @@ water_mpDF = process_MaterialPropertyDF(dataFile)
 
 dataFile = read_Excel_DF(dataFile_path, worksheet='R134aUnified', headerRow=1, skipRows=[0])
 R134a_mpDF = process_MaterialPropertyDF(dataFile)
+
+dataFile = read_Excel_DF(dataFile_path, worksheet='Air', headerRow=1, skipRows=[0])
+air_mpDF = process_MaterialPropertyDF(dataFile)
+
+air = IdealGas(air_mpDF, R=0.2870)
 
 class TestStateDefineMethods_Water(unittest.TestCase):
 
@@ -552,4 +558,27 @@ class TestStateDefineMethods_R134a(unittest.TestCase):
 
         s4s = fullyDefine_StatePure(StatePure(s=s9.s, P=1200), R134a_mpDF)
         self.CompareResults(s4s, {'h': 284.38}, 3)
+
+
+class TestStateDefineMethods_Air(unittest.TestCase):
+
+    def CompareResults(self, testState: StatePure, expected: Dict, ptolerance: Union[float, int]):
+        print('\n')
+        for parameter in expected:
+            assert hasattr(testState, parameter)
+            self.assertTrue(isWithin(getattr(testState, parameter), ptolerance, '%', expected[parameter]))
+            print('Expected: {0}'.format(expected[parameter]))
+            print('Received: {0}'.format(getattr(testState, parameter)))
+
+    def test_air_01(self):
+        # From MECH2201 - A10 Q2
+
+        s1 = define_StateIGas(StateIGas(P=97, T=70), air)
+        self.CompareResults(s1, {'mu': 1.015}, 3)
+
+        s2 = define_StateIGas(StateIGas(T=(1136.86 - 273), mu=0.0507), air)
+        self.CompareResults(s2, {'P': 6435}, 3)
+
+        s3 = define_StateIGas(StateIGas(P=6435, T=(2046.35-273.15)), air)
+        self.CompareResults(s3, {'mu': 0.09126}, 3)
 

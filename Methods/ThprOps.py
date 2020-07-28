@@ -5,8 +5,9 @@ from bisect import bisect_left
 from time import time
 
 from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError, NeedsExtrapolationError
-from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin, get_surroundingValues
-from Models.States import StatePure
+from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin, get_surroundingValues, to_Kelvin, to_deg_C
+from Models.States import StatePure, StateIGas
+from Models.Fluids import Fluid, IdealGas
 
 
 def get_saturationTemperature_atP(mpDF: DataFrame, P: float) -> float:
@@ -129,7 +130,7 @@ def interpolate_betweenPureStates(pureState_1: StatePure, pureState_2: StatePure
     else:
         x = [getattr(pureState_1, referenceProperty), getattr(pureState_2, referenceProperty)]
 
-        for property in StatePure._properties_all:
+        for property in pureState_1._properties_all:  # not using reference to general class definition, since state may be StatePure or StateIGas
             y = [getattr(pureState_1, property), getattr(pureState_2, property)]
             setattr(interpolatedState, property, interpolate_1D(x, y, referenceValue))
 
@@ -288,6 +289,7 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
             phase_mpDF = mpDF.cq.subcLiqs
             phase = 'subcooled'
         else:
+            # This would be a coding error - can be removed once confidence is established
             raise AssertionError('Error: Phase of state could not be determined - x value not -1, 0-1 or 2')
 
         refPropt1_name, refPropt2_name = availablePropertiesNames[:2]  # first 2 available properties used as reference  # TODO: If cannot be interpolated with these 2, can try others if provided
@@ -381,8 +383,9 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
                 # Iterate over values of x surrounding the queryValue of x (= refPropt1_queryValue)
                 t1 = time()
 
-                # Strategy: First find 2 states: one with x value less than refPropt1_queryValue but with y value = refPropt2_queryValue
-                #                                one with x value more than refPropt1_queryValue but with y value = refPropt2_queryValue
+                # Strategy: First find 2 states:
+                # one with x value less than refPropt1_queryValue but with y value = refPropt2_queryValue
+                # one with x value more than refPropt1_queryValue but with y value = refPropt2_queryValue
                 # i.e. two states surround the requested state in terms of x.
                 # To find these 2 states, iterate over available xValues more than and less than the x query value. At each iteration, TRY to get the 2 surrounding values of y available for that x.
                 # There may not be 2 values of y available at each x value surrounding the queried y value. In such case, try/except clause continues iteration with a new x value.
@@ -413,9 +416,71 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
                 if len(states_at_y_queryValue) == 2:
                     return interpolate_betweenPureStates(states_at_y_queryValue[0], states_at_y_queryValue[1], interpolate_at={refPropt1_name: refPropt1_queryValue})
                 else:
-                    raise NeedsExtrapolationError('DataError InputError: No {0} states with values of {1} lower or higher than the query value of {2} are available in the data table.'.format(phase.upper(), refPropt1_name, refPropt1_queryValue))
+                    # 2 states to interpolate between could not be found
+                    if state.x == -1 and T_available:
+                        # SATURATED LIQUID APPROXIMATION AT SAME TEMPERATURE FOR SUBCOOLED LIQUIDS
+                        return get_saturationPropts(phase_mpDF, T=state.T)[0]  # returns [satLiq, satVap], pick first
+                    else:
+                        raise NeedsExtrapolationError('DataError InputError: No {0} states with values of {1} lower or higher than the query value of {2} are available in the data table.'.format(phase.upper(), refPropt1_name, refPropt1_queryValue))
 
-                # TODO: For subcooled liquids, can try to approximate state with saturated liquid at same temperature.
 
-def fullyDefine_StateIGas(state, mpDF: DataFrame):
-    pass
+def apply_IGasLaw(state: StateIGas, R: float):
+    """Uses Ideal Gas Law to find missing properties, if possible. If all variables in the Ideal Gas Law are already defined, checks consistency"""
+    # P mu = R T
+    IGasLaw_allProperties = ['P', 'mu', 'T']
+    IGasLaw_availableProperties = [propertyName for propertyName in IGasLaw_allProperties if isNumeric(getattr(state, propertyName))]
+    IGasLaw_missingProperties = [propertyName for propertyName in IGasLaw_allProperties if propertyName not in IGasLaw_availableProperties]
+
+    if number_ofMissingProperties := len(IGasLaw_missingProperties) == 1:
+        missingProperty = IGasLaw_missingProperties[0]
+        if missingProperty == 'P':
+            state.P = (R * to_Kelvin(state.T) / state.mu)
+        elif missingProperty == 'mu':
+            state.mu = (R * to_Kelvin(state.T) / state.P)
+        elif missingProperty == 'T':
+            state.T = to_deg_C(state.P * state.mu / R)
+    elif number_ofMissingProperties == 0:
+        # If all properties available, check consistency / compliance with the law
+        assert to_Kelvin(state.T) == (state.P * state.mu / R), 'DataError InputError: Provided / inferred state properties not compliant with ideal gas law.'
+
+
+def define_StateIGas(state: StateIGas, fluid: IdealGas):
+    """Tries to fill in the properties of an ideal gas state by applying the ideal gas law and looking up state on the provided mpDF."""
+
+    if len(available_TDependentProperties := [propertyName for propertyName in fluid.mpDF.mp.availableProperties if propertyName in state._properties_all and isNumeric(getattr(state, propertyName))]) >= 1:
+        refPropt_name = available_TDependentProperties[0]
+
+        # Try finding exact state on mpDF
+        state_at_refPropt = fluid.mpDF.cq.cQuery({refPropt_name: getattr(state, refPropt_name)})
+        try:
+            if state_at_refPropt.empty:
+                # Interpolate in mpDF
+                refPropt_valueBelow, refPropt_valueAbove = get_surroundingValues(fluid.mpDF[refPropt_name], value=getattr(state, refPropt_name))
+                state_at_refPropt_valueBelow = StateIGas().init_fromDFRow(fluid.mpDF.cq.cQuery({refPropt_name: refPropt_valueBelow}))
+                state_at_refPropt_valueAbove = StateIGas().init_fromDFRow(fluid.mpDF.cq.cQuery({refPropt_name: refPropt_valueAbove}))
+                state_at_refPropt = interpolate_betweenPureStates(state_at_refPropt_valueBelow, state_at_refPropt_valueAbove, interpolate_at={refPropt_name: getattr(state, refPropt_name)})
+
+            state.copy_fromState(state_at_refPropt)
+        except NeedsExtrapolationError:
+            pass
+
+    apply_IGasLaw(state, fluid.R)
+    return state
+
+
+def get_state_out_actual(state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, state_defFcn):
+    state_out_actual = StatePure(P=state_out_ideal.P)
+    work_ideal = state_out_ideal.h - state_in.h
+
+    if work_ideal >= 0:
+        # work provided to flow from device -> eta_s = w_ideal / w_actual
+        work_actual = work_ideal / eta_isentropic
+        state_out_actual.h = work_actual - state_in.h
+    else:
+        # work extracted from flow by device -> eta_s = w_actual / w_ideal
+        work_ideal = abs(work_ideal)
+        work_actual = eta_isentropic * work_ideal
+        state_out_actual.h = state_in.h - work_actual
+
+    assert state_out_actual.isFullyDefinable()
+    return state_defFcn(state_out_actual)

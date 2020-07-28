@@ -30,12 +30,18 @@ class MaterialPropertyAccessor:
         # Assumes the saturated state with the maximum temperature is the critical point - users should provide many saturated states and ideally the critical point state in their data as well
         # This assumption will return very inaccurate critical point properties if users provide data of states significantly below critical point properties
 
-        saturatedStates = self._mpDF.query('0 <= x <= 1')
-        maximumTemperature = saturatedStates['T'].max()
-        criticalPointCandidates = saturatedStates.query('T == {0}'.format(maximumTemperature))
-        assert not criticalPointCandidates.empty, 'ThDataError: No state found when looking for the saturated state with the maximum temperature. Are there any saturated states provided in the data?'
+        if 'x' in self.availableProperties:
+            saturatedStates = self._mpDF.query('0 <= x <= 1')
+            maximumTemperature = saturatedStates['T'].max()
+            criticalPointCandidates = saturatedStates.query('T == {0}'.format(maximumTemperature))
+            if not criticalPointCandidates.empty:
+                self.criticalPoint = StatePure().init_fromDFRow(criticalPointCandidates.head(1))
+            else:
+                print('ThDataError: No state found when looking for the saturated state with the maximum temperature. Are there any saturated states provided in the data?')
 
-        self.criticalPoint = StatePure().init_fromDFRow(criticalPointCandidates.head(1))
+    @property
+    def availableProperties(self):
+        return list(self._mpDF.columns)
 
 
 @register_dataframe_accessor('cq')
