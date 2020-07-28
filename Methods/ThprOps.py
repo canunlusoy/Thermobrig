@@ -7,7 +7,6 @@ from time import time
 from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError, NeedsExtrapolationError
 from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin, get_surroundingValues, to_Kelvin, to_deg_C
 from Models.States import StatePure, StateIGas
-from Models.Fluids import Fluid, IdealGas
 
 
 def get_saturationTemperature_atP(mpDF: DataFrame, P: float) -> float:
@@ -444,7 +443,7 @@ def apply_IGasLaw(state: StateIGas, R: float):
         assert to_Kelvin(state.T) == (state.P * state.mu / R), 'DataError InputError: Provided / inferred state properties not compliant with ideal gas law.'
 
 
-def define_StateIGas(state: StateIGas, fluid: IdealGas):
+def define_StateIGas(state: StateIGas, fluid: 'IdealGas'):
     """Tries to fill in the properties of an ideal gas state by applying the ideal gas law and looking up state on the provided mpDF."""
 
     if len(available_TDependentProperties := [propertyName for propertyName in fluid.mpDF.mp.availableProperties if propertyName in state._properties_all and isNumeric(getattr(state, propertyName))]) >= 1:
@@ -468,7 +467,11 @@ def define_StateIGas(state: StateIGas, fluid: IdealGas):
     return state
 
 
-def get_state_out_actual(state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, state_defFcn):
+def get_state_out_actual(state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, fluid: 'Fluid'):
+
+    assert state_out_ideal.hasDefined('P')
+    state_out_ideal.set_or_verify({'s': state_in.s})
+    state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
     state_out_actual = StatePure(P=state_out_ideal.P)
     work_ideal = state_out_ideal.h - state_in.h
 
@@ -483,4 +486,5 @@ def get_state_out_actual(state_in: StatePure, state_out_ideal: StatePure, eta_is
         state_out_actual.h = state_in.h - work_actual
 
     assert state_out_actual.isFullyDefinable()
-    return state_defFcn(state_out_actual)
+    return fluid.define(state_out_actual)
+

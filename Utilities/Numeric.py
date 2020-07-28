@@ -114,3 +114,4 @@ def to_Kelvin(oValue: Union[float, int], oUnit: str = 'deg_C'):
 
 def to_deg_C(oValue: Union[float, int], oUnit: str = 'K'):
     return oValue - 273.15
+

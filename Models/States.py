@@ -5,7 +5,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Union, Dict, List
 
-from Utilities.Numeric import isNumeric, get_rangeEndpoints
+from Utilities.Numeric import isNumeric, get_rangeEndpoints, isWithin
 
 @dataclass
 class StatePure:
@@ -94,11 +94,31 @@ class StatePure:
             if isNumeric(referenceValue := getattr(referenceState, propertyName)):
                 setattr(self, propertyName, referenceValue)
 
+    def copy_or_verify_fromState(self, referenceState: 'StatePure', pTolerance: float = 3):
+        """Copies property values from the provided reference state. If property already has a value defined, compares it to the one desired to be assigned, raises error if values do not match.
+        If the values match, still copies the value from the referenceState - decimals might change."""
+        for propertyName in self._properties_all:
+            if isNumeric(referenceValue := getattr(referenceState, propertyName)):
+                if not isNumeric(getattr(self, propertyName)):
+                    setattr(self, propertyName, referenceValue)
+                else:
+                    # property has a value defined
+                    if not isWithin(getattr(self, propertyName), 3, '%', referenceValue):
+                        raise
+
     def set(self, setDict: Dict):
         """Sets values of the properties to the values provided in the dictionary."""
         for parameterName in setDict:
             if parameterName in self._properties_all:
                 setattr(self, parameterName, setDict[parameterName])
+
+    def set_or_verify(self, setDict: Dict):
+        for parameterName in setDict:
+            if parameterName in self._properties_all:
+                if not self.hasDefined(parameterName):
+                    setattr(self, parameterName, setDict[parameterName])
+                else:
+                    assert isWithin(getattr(self, parameterName), 3, '%', setDict[parameterName])
 
 
 class StateIGas(StatePure):

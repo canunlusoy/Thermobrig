@@ -38,12 +38,14 @@ class TestFlows(unittest.TestCase):
 
     def test_flows_01(self):
         # From MECH2201 - A9 Q1
+        # Net power = 80 MW
+        # x after Turbine, mass flow rate, thermal efficiency?
 
         flow = Flow(workingFluid=water)
         flow.items = [StatePure(P=10000, T=500),
                       Turbine(eta_isentropic=0.8),
                       StatePure(P=1000),
-                      rhboiler := Boiler(outletTemperature_fixed=500),
+                      rhboiler := Boiler(),
                       StatePure(T=500),
                       Turbine(eta_isentropic=0.8),
                       StatePure(),
@@ -52,3 +54,5 @@ class TestFlows(unittest.TestCase):
                       Pump(eta_isentropic=0.95),
                       StatePure(),
                       rhboiler]
+
+        flow.solve()

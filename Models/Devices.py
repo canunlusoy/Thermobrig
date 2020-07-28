@@ -1,5 +1,11 @@
+
+from typing import Dict
+
 from Models.States import StatePure
 from Methods.ThprOps import get_state_out_actual
+
+from Utilities.Numeric import isNumeric, isWithin
+
 
 class Device:
 
@@ -20,7 +26,13 @@ class Device:
     def apply_verify_relations(self):
         pass
 
-
+    def set_or_verify(self, setDict: Dict):
+        for parameterName in setDict:
+            if hasattr(self, parameterName):
+                if not isNumeric(getattr(self, parameterName)):
+                    setattr(self, parameterName, setDict[parameterName])
+                else:
+                    assert isWithin(getattr(self, parameterName), 3, '%', setDict[parameterName])
 
 class WorkDevice(Device):
 
@@ -64,8 +76,16 @@ class Turbine(WorkDevice):
 
 
 class HeatDevice(Device):
-    def __init__(self):
+    def __init__(self, T_exit_fixed: float = float('nan'),
+                 infer_constant_operatingP: bool = True, infer_fixed_exitT: bool = True):
         super(HeatDevice, self).__init__()
+
+        self.infer_constant_operatingP = infer_constant_operatingP
+        self.infer_fixed_exitT = infer_fixed_exitT
+
+        self.T_exit_fixed = T_exit_fixed
+        self.P_operating = float('nan')
+
 
     def get_heatProvided(self):
         return self.state_out.h - self.state_in.h
@@ -80,10 +100,14 @@ class Combustor(HeatDevice):
 
 
 class Boiler(HeatDevice):
-    def __init__(self, outletTemperature_fixed: float = None):
-        super(Boiler, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(Boiler, self).__init__(*args, **kwargs)
+    # def __init__(self, T_exit_fixed: float = None,
+    #              infer_constant_operatingP: bool = True,
+    #              infer_fixed_exitT: bool = True):
+    #
+    #     super(Boiler, self).__init__(T_exit_fixed, infer_constant_operatingP, infer_fixed_exitT)
 
-        self.temperature_outlet_fixed = outletTemperature_fixed
 
 
 

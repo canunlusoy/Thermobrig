@@ -1,6 +1,7 @@
 from pandas import DataFrame
 
 from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
+from Models.States import StatePure
 
 class Fluid:
 
@@ -9,6 +10,9 @@ class Fluid:
         self.mpDF = mpDF
         self.defFcn = fullyDefine_StatePure
 
+    def define(self, state: StatePure):
+        """Wrapper around the state definition function to directly include the fluid's mpDF."""
+        return self.defFcn(state, self.mpDF)
 
 class IdealGas(Fluid):
 
