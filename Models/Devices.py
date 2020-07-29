@@ -48,11 +48,11 @@ class WorkDevice(Device):
 
 
     @property
-    def workProvided(self):
+    def sWorkSupplied(self):
         return self.state_out.h - self.state_in.h
 
     @property
-    def workExtracted(self):
+    def sWorkExtracted(self):
         return self.state_in.h - self.state_out.h
 
     def apply_verify_relations(self):
@@ -120,14 +120,28 @@ class HeatDevice(Device):
         for line_endStates in self.lines:
             line_endStates[1].set_or_verify({'T': self.T_exit_fixed})
 
+    @property
+    def total_net_sHeatSupplied(self):
+        total_heatProvided = 0
+        for line_state_in, line_state_out in self.lines:
+            total_heatProvided += (line_state_out.h - line_state_in.h)
+        return total_heatProvided
 
     @property
-    def heatProvided(self):
-        return self.state_out.h - self.state_in.h
+    def total_sHeatSupplied(self):
+        total_heatSupplied = 0
+        for line_state_in, line_state_out in self.lines:
+            sEnthalpyChange = (line_state_out.h - line_state_in.h)
+            if sEnthalpyChange > 0:
+                total_heatSupplied += sEnthalpyChange
+        return total_heatSupplied
 
     @property
-    def heatExtracted(self):
-        return self.state_in.h - self.state_out.h
+    def total_net_sHeatExtracted(self):
+        total_heatExtracted = 0
+        for line_state_in, line_state_out in self.lines:
+            total_heatExtracted += (line_state_in.h - line_state_out.h)
+        return total_heatExtracted
 
 
 class Combustor(HeatDevice):

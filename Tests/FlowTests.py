@@ -63,3 +63,25 @@ class TestFlows(unittest.TestCase):
         # State 4 - fully definable
 
         flow.solve()
+
+        self.CompareResults(flow.states[0], {'h': 3373.7, 's': 6.5966}, 3)
+        self.CompareResults(flow.states[1], {'h': 2920.6}, 3)
+        self.CompareResults(flow.states[2], {'h': 3478.5, 's': 7.7622}, 3)
+        self.CompareResults(flow.states[3], {'T': 87.8, 'h': 2664.4}, 3)
+        self.CompareResults(flow.states[4], {'h': 191.83, 's': 0.6493}, 3)
+        self.CompareResults(flow.states[5], {'h': 202.45}, 3)
+
+        netPower = 80000
+        massFlowRate = netPower / flow.net_sWorkExtracted
+        eta_thermal = flow.net_sWorkExtracted / flow.sHeatSupplied
+        x_afterTurbine = flow.states[3].x
+
+        self.assertTrue(isWithin(massFlowRate, 3, '%', 63.66))
+        print('Expected: ', 63.66)
+        print('Received: ', massFlowRate)
+        self.assertTrue(isWithin(eta_thermal, 3, '%', 0.34))
+        print('Expected: ', 0.34)
+        print('Received: ', eta_thermal)
+        self.assertTrue(isWithin(x_afterTurbine, 3, '%', 2))
+        print('Expected: ', 2)
+        print('Received: ', x_afterTurbine)
