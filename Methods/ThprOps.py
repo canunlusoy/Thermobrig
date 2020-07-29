@@ -478,7 +478,7 @@ def get_state_out_actual(state_in: StatePure, state_out_ideal: StatePure, eta_is
     if work_ideal >= 0:
         # work provided to flow from device -> eta_s = w_ideal / w_actual
         work_actual = work_ideal / eta_isentropic
-        state_out_actual.h = work_actual - state_in.h
+        state_out_actual.h = work_actual + state_in.h
     else:
         # work extracted from flow by device -> eta_s = w_actual / w_ideal
         work_ideal = abs(work_ideal)

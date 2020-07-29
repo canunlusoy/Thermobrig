@@ -42,17 +42,24 @@ class TestFlows(unittest.TestCase):
         # x after Turbine, mass flow rate, thermal efficiency?
 
         flow = Flow(workingFluid=water)
-        flow.items = [StatePure(P=10000, T=500),
+        flow.items = [StatePure(P=10000, T=500),  # State 0
                       Turbine(eta_isentropic=0.8),
-                      StatePure(P=1000),
+                      StatePure(P=1000),  # State 1
                       rhboiler := Boiler(),
-                      StatePure(T=500),
+                      StatePure(T=500),  # State 2
                       Turbine(eta_isentropic=0.8),
-                      StatePure(),
+                      StatePure(),  # State 3
                       Condenser(),
-                      StatePure(P=10, x=0),
+                      StatePure(P=10, x=0),  # State 4
                       Pump(eta_isentropic=0.95),
-                      StatePure(),
+                      StatePure(),  # State 5
                       rhboiler]
+
+        # Solution process:
+        # State 0 - fully definable
+        # State 1 - work out with isentropic efficiency
+        # State 2 - infer pressure from State 1, fully definable
+        # State 3 - infer pressure from 4, work out with isentropic efficiency
+        # State 4 - fully definable
 
         flow.solve()

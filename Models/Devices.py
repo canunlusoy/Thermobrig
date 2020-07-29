@@ -1,10 +1,10 @@
 
-from typing import Dict
+from typing import Dict, List
 
 from Models.States import StatePure
 from Methods.ThprOps import get_state_out_actual
 
-from Utilities.Numeric import isNumeric, isWithin
+from Utilities.Numeric import isNumeric, isWithin, twoList
 
 
 class Device:
@@ -47,10 +47,12 @@ class WorkDevice(Device):
             self.state_out_ideal = state_out_ideal
 
 
-    def get_workProvided(self):
+    @property
+    def workProvided(self):
         return self.state_out.h - self.state_in.h
 
-    def get_workExtracted(self):
+    @property
+    def workExtracted(self):
         return self.state_in.h - self.state_out.h
 
     def apply_verify_relations(self):
@@ -77,20 +79,54 @@ class Turbine(WorkDevice):
 
 class HeatDevice(Device):
     def __init__(self, T_exit_fixed: float = float('nan'),
-                 infer_constant_operatingP: bool = True, infer_fixed_exitT: bool = True):
+                 infer_constant_lineP: bool = True, infer_fixed_exitT: bool = True):
         super(HeatDevice, self).__init__()
 
-        self.infer_constant_operatingP = infer_constant_operatingP
-        self.infer_fixed_exitT = infer_fixed_exitT
+        self._infer_constant_linePressures = infer_constant_lineP
+        self.lines: List[twoList[StatePure]] = []
+        self.linePressures = {}
+        # assumes pressure remains constant in each line passing through device, e.g. if a boiler is used twice by the same flow, each time, the pressure of the line
+        # passing through the boiler will be different but the pressure inside the line will be constant - effectively, sets the inlet and outlet states of each line
+        # passing through boiler to have the same pressure.
 
+        self._infer_fixed_exitT = infer_fixed_exitT
         self.T_exit_fixed = T_exit_fixed
-        self.P_operating = float('nan')
+        # assumes each line passing through the boiler reaches the same exit temperature. Once an exit temperature is available, sets T_exit_fixed.
+
+    def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+        if (line_endStates := twoList([state_in, state_out])) not in self.lines:
+            self.lines.append(line_endStates)
+            # Set state_in, state_out as the currently set pair - but ideally, when making use of endStates of HeatDevices, methods must make provisions for lines
+            self.state_in = state_in
+            self.state_out = state_out
+
+    def infer_constant_linePressures(self):
+        for line_endStates in self.lines:
+            number_ofNumericPvals = sum(1 for state in line_endStates if isNumeric(getattr(state, 'P')))
+            if number_ofNumericPvals == 2:
+                assert isWithin(line_endStates[0].P, 3, '%', line_endStates[1].P)
+            elif number_ofNumericPvals == 1:
+                state_withNonNumericPval = line_endStates.itemSatisfying(lambda state: not isNumeric(getattr(state, 'P')))
+                state_withNumericPval = line_endStates.other(state_withNonNumericPval)
+                state_withNonNumericPval.P = state_withNumericPval.P
+
+    def infer_fixed_exitT(self):
+        state_out_withNumericT = None
+        for line_endStates in self.lines:
+            if line_endStates[1].hasDefined('T'):
+                state_out_withNumericT = line_endStates[1]
+                break
+        self.set_or_verify({'T_exit_fixed': state_out_withNumericT.T})
+        for line_endStates in self.lines:
+            line_endStates[1].set_or_verify({'T': self.T_exit_fixed})
 
 
-    def get_heatProvided(self):
+    @property
+    def heatProvided(self):
         return self.state_out.h - self.state_in.h
 
-    def get_heatExtracted(self):
+    @property
+    def heatExtracted(self):
         return self.state_in.h - self.state_out.h
 
 
@@ -102,13 +138,6 @@ class Combustor(HeatDevice):
 class Boiler(HeatDevice):
     def __init__(self, *args, **kwargs):
         super(Boiler, self).__init__(*args, **kwargs)
-    # def __init__(self, T_exit_fixed: float = None,
-    #              infer_constant_operatingP: bool = True,
-    #              infer_fixed_exitT: bool = True):
-    #
-    #     super(Boiler, self).__init__(T_exit_fixed, infer_constant_operatingP, infer_fixed_exitT)
-
-
 
 
 class Condenser(HeatDevice):

@@ -1,6 +1,7 @@
 from math import isnan
-from typing import Union, Tuple, List, Dict
+from typing import Union, Tuple, List, Dict, Callable
 from bisect import bisect_left, bisect_right
+from collections import UserList
 from time import time
 
 from Utilities.Exceptions import NeedsExtrapolationError
@@ -115,3 +116,17 @@ def to_Kelvin(oValue: Union[float, int], oUnit: str = 'deg_C'):
 def to_deg_C(oValue: Union[float, int], oUnit: str = 'K'):
     return oValue - 273.15
 
+
+class twoList(UserList):
+
+    def __init__(self, *args):
+        super(twoList, self).__init__(*args)
+
+    def other(self, otherThan):
+        return self[self.index(otherThan) - 1]
+
+    def itemSatisfying(self, condition: Callable):
+        for item in self:
+            if condition(item):
+                return item
+        return None

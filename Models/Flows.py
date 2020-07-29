@@ -9,7 +9,7 @@ from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
 from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor
 
-from Utilities.Numeric import isNumeric, isWithin
+from Utilities.Numeric import isNumeric, isWithin, twoList
 from Utilities.Exceptions import DataVerificationError
 
 # FLOWS include relations between states (same T / P / h / s)
@@ -17,10 +17,13 @@ from Utilities.Exceptions import DataVerificationError
 
 class Flow:
 
-    def __init__(self, workingFluid: Fluid):
+    def __init__(self, workingFluid: Fluid, massFlowRate: float = float('nan'), massFlowFraction: float = float('nan')):
 
         # Not considering flows with multiple fluids, one flow can contain only one fluid
         self.workingFluid = workingFluid
+        self.massFlowRate = massFlowRate
+        self.massFlowFraction = massFlowFraction
+
 
         self.items = []
 
@@ -51,6 +54,8 @@ class Flow:
     def _set_devices_stateReferences(self):
         self._check_itemsConsistency()
 
+        # TODO: Devices with flow going in and out multiple times! State references!
+
         def core():
             for itemIndex, item in enumerate(self.items):
                 if isinstance(item, Device):
@@ -70,7 +75,10 @@ class Flow:
 
     def _define_definableStates(self) -> None:
         """Runs the appropriate defFcn (function to fully define the state properties) for states which can be fully defined, i.e. has 2+ independent intensive properties defined."""
-        for state in self.states:
+        self._define_ifDefinable(self.states)
+
+    def _define_ifDefinable(self, states: List[StatePure]):
+        for state in states:
             if state.isFullyDefinable() and not state.isFullyDefined():
                 state.copy_fromState(self.workingFluid.define(state))
 
@@ -83,12 +91,11 @@ class Flow:
         device_solved = {device: False for device in self.devices}
 
         for device in self.devices:
-            endStates = [device.state_in, device.state_out]
-
+            endStates: List[StatePure] = twoList([device.state_in, device.state_out])
 
             if isinstance(device, WorkDevice):
 
-                # Actual outlet state determination from ideal outlet state
+                # Actual outlet state determination from ideal outlet state - has to be here, need to know fluid to define state
                 if device.eta_isentropic != 1:
                     if device.state_in.isFullyDefined() and device.state_out.hasDefined('P'):
                         # going to overwrite state_out
@@ -100,24 +107,16 @@ class Flow:
 
             if isinstance(device, HeatDevice):
 
-                # Setting end state pressures if constant operating pressure is assumed
-                if device.infer_constant_operatingP:
-                    endStates_Pvals = [(state, isNumeric(getattr(state, 'P'))) for state in endStates]
-                    # if both end states have a P defined, ensure they match within reasonable tolerance
-                    if (number_ofNumericPvals := sum(1 for row in endStates_Pvals if row[1] == True)) == 2:
-                        assert isWithin(device.state_in.P, 3, '%', device.state_out.P)
-                    # if only one end state has a P defined, apply it to the other end state
-                    elif number_ofNumericPvals == 1:
-                        endStates_Pvals.sort(key=itemgetter(1))  # sort by truth of isNumeric
-                        state_withNonNumericPval = endStates_Pvals[0][0]
-                        state_withNonNumericPval.P = endStates_Pvals[1][0].P
+                # Setting end state pressures along the same line if pressures is assumed constant along each line
+                if device._infer_constant_linePressures:
+                    device.infer_constant_linePressures()
 
                 # Setting up fixed exit temperature if inferring exit temperature from one exit state
-                if device.infer_fixed_exitT:
-                    if device.state_out.hasDefined('T'):
-                        device.set_or_verify({'T_exit_fixed': device.state_out.T})
-                        device.state_out.set_or_verify({'T': device.T_exit_fixed})
+                if device._infer_fixed_exitT:
+                    device.infer_fixed_exitT()
 
+
+            self._define_ifDefinable(endStates)
             if all(state.isFullyDefined() for state in endStates):
                 device_solved[device] = True
 
