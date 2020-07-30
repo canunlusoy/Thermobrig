@@ -23,9 +23,6 @@ class Device:
     def isFullyDefined(self):
         return self.state_in.isFullyDefined() and self.state_out.isFullyDefined()
 
-    def apply_verify_relations(self):
-        pass
-
     def set_or_verify(self, setDict: Dict):
         for parameterName in setDict:
             if hasattr(self, parameterName):
@@ -34,18 +31,33 @@ class Device:
                 else:
                     assert isWithin(getattr(self, parameterName), 3, '%', setDict[parameterName])
 
+    @property
+    def endStates(self):
+        return [self.state_in, self.state_out]
+
 class WorkDevice(Device):
 
-    def __init__(self, eta_isentropic: float = 1, state_out_ideal: StatePure = None):
+    def __init__(self, eta_isentropic: float = 1):
         super(WorkDevice, self).__init__()
 
         self.eta_isentropic = eta_isentropic
 
-        if state_out_ideal is None:
-            self.state_out_ideal = self.state_out
-        else:
-            self.state_out_ideal = state_out_ideal
+        self.states_out: List[StatePure] = []
+        # states_out is the list of all outlet states from the turbine. Flows may be extracted from the turbine at different stages with different pressures.
+        # However it is expected that there is only one state_in.
 
+    def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+        if state_in is not None:
+            self.state_in = state_in
+        if state_out is not None:
+            self.states_out.append(state_out)
+
+    @property
+    def endStates(self):
+        all_endStates = [self.state_in]
+        for endState in self.states_out:
+            all_endStates.append(endState)
+        return all_endStates
 
     @property
     def sWorkSupplied(self):
@@ -55,26 +67,20 @@ class WorkDevice(Device):
     def sWorkExtracted(self):
         return self.state_in.h - self.state_out.h
 
-    def apply_verify_relations(self):
-        super(WorkDevice, self).apply_verify_relations()
-
-
-
-
 
 class Compressor(WorkDevice):
-    def __init__(self, eta_isentropic: float = 1, state_out_ideal: StatePure = None):
-        super(Compressor, self).__init__(eta_isentropic, state_out_ideal)
+    def __init__(self, eta_isentropic: float = 1):
+        super(Compressor, self).__init__(eta_isentropic)
 
 
 class Pump(WorkDevice):
-    def __init__(self, eta_isentropic: float = 1, state_out_ideal: StatePure = None):
-        super(Pump, self).__init__(eta_isentropic, state_out_ideal)
+    def __init__(self, eta_isentropic: float = 1):
+        super(Pump, self).__init__(eta_isentropic)
 
 
 class Turbine(WorkDevice):
-    def __init__(self, eta_isentropic: float = 1, state_out_ideal: StatePure = None):
-        super(Turbine, self).__init__(eta_isentropic, state_out_ideal)
+    def __init__(self, eta_isentropic: float = 1):
+        super(Turbine, self).__init__(eta_isentropic)
 
 
 class HeatDevice(Device):
@@ -84,7 +90,6 @@ class HeatDevice(Device):
 
         self._infer_constant_linePressures = infer_constant_lineP
         self.lines: List[twoList[StatePure]] = []
-        self.linePressures = {}
         # assumes pressure remains constant in each line passing through device, e.g. if a boiler is used twice by the same flow, each time, the pressure of the line
         # passing through the boiler will be different but the pressure inside the line will be constant - effectively, sets the inlet and outlet states of each line
         # passing through boiler to have the same pressure.
@@ -99,6 +104,15 @@ class HeatDevice(Device):
             # Set state_in, state_out as the currently set pair - but ideally, when making use of endStates of HeatDevices, methods must make provisions for lines
             self.state_in = state_in
             self.state_out = state_out
+
+    @property
+    def endStates(self):
+        """All end states of the device, from all lines."""
+        all_endStates = []
+        for line in self.lines:
+            for endState in line:
+                all_endStates.append(endState)
+        return all_endStates
 
     def infer_constant_linePressures(self):
         for line_endStates in self.lines:
@@ -122,26 +136,29 @@ class HeatDevice(Device):
 
     @property
     def total_net_sHeatSupplied(self):
-        total_heatProvided = 0
+        """Net specific heat supplied over all lines passing through device. This is the net value, i.e. heat extracted is deducted from the heat supplied."""
+        total_net_sHeatProvided = 0
         for line_state_in, line_state_out in self.lines:
-            total_heatProvided += (line_state_out.h - line_state_in.h)
-        return total_heatProvided
+            total_net_sHeatProvided += (line_state_out.h - line_state_in.h)
+        return total_net_sHeatProvided
 
     @property
     def total_sHeatSupplied(self):
-        total_heatSupplied = 0
+        """Total specific heat supplied over all lines passing through device. This is not the net value - it is the sum of all positive heat supplied to flow."""
+        total_sHeatSupplied = 0
         for line_state_in, line_state_out in self.lines:
             sEnthalpyChange = (line_state_out.h - line_state_in.h)
             if sEnthalpyChange > 0:
-                total_heatSupplied += sEnthalpyChange
-        return total_heatSupplied
+                total_sHeatSupplied += sEnthalpyChange
+        return total_sHeatSupplied
 
     @property
     def total_net_sHeatExtracted(self):
-        total_heatExtracted = 0
+        """Net specific heat extracted over all lines passing through device. This is the net value, i.e. heat supplied is deducted from the heat extracted."""
+        total_sHeatExtracted = 0
         for line_state_in, line_state_out in self.lines:
-            total_heatExtracted += (line_state_in.h - line_state_out.h)
-        return total_heatExtracted
+            total_sHeatExtracted += (line_state_in.h - line_state_out.h)
+        return total_sHeatExtracted
 
 
 class Combustor(HeatDevice):
@@ -158,3 +175,30 @@ class Condenser(HeatDevice):
     def __init__(self):
         super(Condenser, self).__init__()
 
+
+class FeedwaterHeater_Closed(HeatDevice):
+    def __init__(self, *args, **kwargs):
+        super(FeedwaterHeater_Closed, self).__init__(*args, **kwargs)
+        # Exit temperatures of lines passing through CFWH don't have to be the same. -> infer_fixed_exitT = False
+
+        self.lines_transit = []
+        self.lines_mixing = []
+
+
+class MixingChamber(HeatDevice):
+    def __init__(self, *args, infer_operatingPressure = True, **kwargs):
+        super(MixingChamber, self).__init__(*args, **kwargs)
+
+        self._infer_operatingPressure = infer_operatingPressure
+
+
+
+
+
+class FeedwaterHeater_Open(HeatDevice):
+    def __init__(self):
+        super(FeedwaterHeater_Open, self).__init__()
+
+class ThrottlingValve:
+    def __init__(self):
+        pass

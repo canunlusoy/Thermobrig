@@ -2,9 +2,9 @@ import unittest
 
 from typing import Dict, Union
 
-from Models.Flows import Flow
+from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
-from Models.Devices import Turbine, Boiler, Condenser, Pump
+from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, FeedwaterHeater_Closed
 from Models.Fluids import Fluid, IdealGas
 from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
 
@@ -36,13 +36,13 @@ class TestFlows(unittest.TestCase):
             print('Expected: {0}'.format(expected[parameter]))
             print('Received: {0}'.format(getattr(testState, parameter)))
 
-    def test_flows_01(self):
+    def test_flows_water_01(self):
         # From MECH2201 - A9 Q1
         # Net power = 80 MW
         # x after Turbine, mass flow rate, thermal efficiency?
 
         flow = Flow(workingFluid=water)
-        flow.items = [StatePure(P=10000, T=500),  # State 0
+        flow.items = [state_0 := StatePure(P=10000, T=500),  # State 0
                       Turbine(eta_isentropic=0.8),
                       StatePure(P=1000),  # State 1
                       rhboiler := Boiler(),
@@ -53,7 +53,8 @@ class TestFlows(unittest.TestCase):
                       StatePure(P=10, x=0),  # State 4
                       Pump(eta_isentropic=0.95),
                       StatePure(),  # State 5
-                      rhboiler]
+                      rhboiler,
+                      state_0]
 
         # Solution process:
         # State 0 - fully definable
@@ -85,3 +86,105 @@ class TestFlows(unittest.TestCase):
         self.assertTrue(isWithin(x_afterTurbine, 3, '%', 2))
         print('Expected: ', 2)
         print('Received: ', x_afterTurbine)
+
+    def test_flows_water_02(self):
+
+        flow = Flow(workingFluid=water)
+        flow.items = [StatePure(P=15000, T=600),
+                      Turbine(),
+                      StatePure(P=1000),
+                      rhBoiler := Boiler(),
+                      StatePure(T=500),
+                      Turbine(),
+                      turbine_d1 := StatePure(P=600)]
+
+        flow_a = Flow(workingFluid=water)
+        flow_a.items = [turbine_d1,
+                        c_fwh := Device(),
+                        StatePure(x=0),
+                        Device(),
+                        StatePure(P=200),
+                        o_fwh := Device()]
+
+        flow_b = Flow(workingFluid=water)
+        flow_b.items = [turbine_d1,
+                        Turbine(),
+                        turbine_d2 := StatePure(P=200),
+                        o_fwh]
+
+        flow_c = Flow(workingFluid=water)
+        flow_c.items = [turbine_d1,
+                        Turbine(),
+                        turbine_d2,
+                        Turbine(),
+                        StatePure(P=5),
+                        Pump(),
+                        StatePure(P=200),
+                        o_fwh]
+
+        flow_d = Flow(workingFluid=water)
+        flow_d.items = [StatePure(),
+                        Condenser(),
+                        StatePure(P=5),
+                        Pump(),
+                        StatePure(P=200)]
+
+        flow_e = Flow(workingFluid=water)
+        flow_e.items = [o_fwh,
+                        StatePure(),
+                        Pump(),
+                        StatePure(P=15000),
+                        c_fwh,
+                        StatePure(x=0),
+                        rhBoiler]
+
+    def test_flows_water_03(self):
+
+        flow_a = Flow(water)
+        flow_a.items = [condenser := Condenser(),
+                        state_1 := StatePure(P=20),
+                        Pump(),
+                        state_2 := StatePure(P=5000),
+                        fwh_a := FeedwaterHeater_Closed(),
+                        state_3 := StatePure(),
+                        fwh_b := FeedwaterHeater_Closed(),
+                        state_4 := StatePure(),
+                        Boiler(),
+                        state_5 := StatePure(T=700),
+                        turbine := Turbine(eta_isentropic=1)]
+
+        flow_b = Flow(water)
+        flow_b.massFlowFraction = 0.1446
+        flow_b.items = [turbine,
+                        state_6 := StatePure(P=1400),
+                        fwh_b,
+                        state_9 := StatePure(),
+                        Device(),
+                        state_10 := StatePure(),
+                        fwh_a]
+
+        flow_c = Flow(water)
+        flow_c.items = [turbine,
+                        state_7 := StatePure(P=245),
+                        fwh_a]
+
+        flow_d = Flow(water)
+        flow_d.items = [fwh_a,
+                        state_11 := StatePure(),
+                        Device(),
+                        state_12 := StatePure(),
+                        condenser]
+
+        flow_e = Flow(water)
+        flow_e.items = [turbine,
+                        state_8 := StatePure(P=20)]
+
+
+
+
+    # def test_flows_air_01(self):
+    #
+    #     flow = IdealGasFlow(workingFluid=air)
+    #
+    #     flow.items = []
+

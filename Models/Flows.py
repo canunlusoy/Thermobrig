@@ -21,13 +21,12 @@ class Flow:
 
         # Not considering flows with multiple fluids, one flow can contain only one fluid
         self.workingFluid = workingFluid
-        self.massFlowRate = massFlowRate
         self.massFlowFraction = massFlowFraction
 
 
         self.items = []
-
-        self.stateRelations = {}
+        # Items is a list of devices and states making up the flow.
+        # If flow is cyclic, items list should start with a state and end with the same state.
 
 
     @property
@@ -47,45 +46,39 @@ class Flow:
         return [item for item in self.items if isinstance(item, HeatDevice)]
 
     def _check_itemsConsistency(self):
-        indices_states, indices_devices = [], []
-        for index, item in enumerate(self.items):
-            if isinstance(item, StatePure):
-                indices_states.append(index)
-            elif isinstance(item, Device):
-                indices_devices.append(index)
+        """Check if items of flow are either states or devices, and if a state is always followed by a device or vice versa."""
 
-        # todo check every second item is a state
-        for stateIndex in indices_states:
-            # Check if every state is followed by a device
-            assert (stateIndex + 1) in indices_devices
+        maximumIndex = len(self.items) - 1
+        for itemIndex, item in enumerate(self.items):
+            if isinstance(item, StatePure):
+                if itemIndex < maximumIndex:
+                    assert isinstance(self.items[itemIndex + 1], Device)
+            elif isinstance(item, Device):
+                if itemIndex < maximumIndex:
+                    assert isinstance(self.items[itemIndex + 1], StatePure)
+            else:
+                raise AssertionError('InputError: Item {0} in items of flow {1} is not a device or a state.'.format(item, self))
 
     def _set_devices_stateReferences(self):
+        """For each device in the items list, sets state_in as the preceding state in the items list, and sets state_out as the next state in the items list.
+        If there are no states before or after the device in the items list, leaves the relevant reference empty."""
         self._check_itemsConsistency()
 
-        # TODO: Devices with flow going in and out multiple times! State references!
-
-        def core():
-            for itemIndex, item in enumerate(self.items):
-                if isinstance(item, Device):
-                    item.set_states(state_in=self.items[itemIndex - 1], state_out=self.items[itemIndex + 1])
-
-        if isinstance(self.items[0], Device):
-            assert isinstance(self.items[-1], StatePure)
-            self.items.insert(0, self.items[-1])
-            core()
-            self.items.pop(0)
-
-        elif isinstance(self.items[-1], Device):
-            assert isinstance(self.items[0], StatePure)
-            self.items.append(self.items[0])
-            core()
-            self.items.pop(-1)
+        maximumIndex = len(self.items) - 1
+        for itemIndex, item in enumerate(self.items):
+            if isinstance(item, Device):
+                state_in, state_out = None, None  # set default references to None
+                if itemIndex - 1 >= 0:  # if there is an item in the list before the device - guaranteed to be a state by _check_itemsConsistency
+                    state_in = self.items[itemIndex - 1]
+                if itemIndex + 1 <= maximumIndex:  # if there is an item in the list after the device
+                    state_out = self.items[itemIndex + 1]
+                item.set_states(state_in=state_in, state_out=state_out)
 
     def _define_definableStates(self) -> None:
         """Runs the appropriate defFcn (function to fully define the state properties) for states which can be fully defined, i.e. has 2+ independent intensive properties defined."""
-        self._define_ifDefinable(self.states)
+        self._defineStates_ifDefinable(self.states)
 
-    def _define_ifDefinable(self, states: Union[StatePure, List, twoList]):
+    def _defineStates_ifDefinable(self, states: Union[StatePure, List, twoList]):
         if isinstance(states, StatePure):
             states = [states]
         for state in states:
@@ -93,19 +86,21 @@ class Flow:
                 state.copy_fromState(self.workingFluid.define(state))
 
     def _solveDevice(self, device: Device):
-        endStates: twoList[StatePure] = twoList([device.state_in, device.state_out])
+        endStates = device.endStates
 
         if isinstance(device, WorkDevice):
 
             # Actual outlet state determination from ideal outlet state - has to be here, need to know fluid to define state
             if device.eta_isentropic != 1:
-                if device.state_in.isFullyDefined() and device.state_out.hasDefined('P'):
-                    # going to overwrite state_out
-                    device.state_out.copy_fromState(get_state_out_actual(state_in=device.state_in,
-                                                                         state_out_ideal=device.state_out,  # uses only the P information from available state_out
-                                                                         eta_isentropic=device.eta_isentropic,
-                                                                         fluid=self.workingFluid))
-                    assert device.state_out.isFullyDefined()
+                for current_state_out in device.states_out:
+                    # Work devices may have multiple outlets with flows of different pressure. Repeat process for each state_out.
+                    if device.state_in.isFullyDefined() and current_state_out.hasDefined('P'):
+                        # going to overwrite state_out
+                        current_state_out.copy_fromState(get_state_out_actual(state_in=device.state_in,
+                                                                              state_out_ideal=current_state_out,  # uses only the P information from available state_out
+                                                                              eta_isentropic=device.eta_isentropic,
+                                                                              fluid=self.workingFluid))
+                        assert current_state_out.isFullyDefined()
 
         if isinstance(device, HeatDevice):
 
@@ -117,7 +112,7 @@ class Flow:
             if device._infer_fixed_exitT:
                 device.infer_fixed_exitT()
 
-        self._define_ifDefinable(endStates)
+        self._defineStates_ifDefinable(endStates)
 
     def solve(self):
         self._define_definableStates()
@@ -139,7 +134,7 @@ class Flow:
                 for device in surroundingDevices:
                     if not state.isFullyDefined():  # the state may become defined in first iteration of loop
                         self._solveDevice(device)
-                self._define_ifDefinable(state)
+                self._defineStates_ifDefinable(state)
 
     @property
     def net_sWorkExtracted(self):
@@ -160,10 +155,6 @@ class IdealGasFlow(Flow):
 
     def __init__(self, workingFluid: IdealGas):
         super(IdealGasFlow, self).__init__(workingFluid)
-
-
-
-
 
     def get_P_r(self, state: StateIGas):
         assert isNumeric(state.s0)
