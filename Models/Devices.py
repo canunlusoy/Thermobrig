@@ -20,9 +20,6 @@ class Device:
         if state_out is not None:
             self.state_out = state_out
 
-    def isFullyDefined(self):
-        return self.state_in.isFullyDefined() and self.state_out.isFullyDefined()
-
     def set_or_verify(self, setDict: Dict):
         for parameterName in setDict:
             if hasattr(self, parameterName):
@@ -33,7 +30,7 @@ class Device:
 
     @property
     def endStates(self):
-        return [self.state_in, self.state_out]
+        return [state for state in  [self.state_in, self.state_out] if isinstance(state, StatePure)]
 
 class WorkDevice(Device):
 
@@ -59,13 +56,15 @@ class WorkDevice(Device):
             all_endStates.append(endState)
         return all_endStates
 
-    @property
-    def sWorkSupplied(self):
-        return self.state_out.h - self.state_in.h
+    # @property
+    # def sWorkSupplied(self):
+    #     return self.state_out.h - self.state_in.h
+    #
+    # @property
+    # def sWorkExtracted(self):
+    #     return self.state_in.h - self.state_out.h
 
-    @property
-    def sWorkExtracted(self):
-        return self.state_in.h - self.state_out.h
+
 
 
 class Compressor(WorkDevice):
@@ -115,6 +114,7 @@ class HeatDevice(Device):
         return all_endStates
 
     def infer_constant_linePressures(self):
+        """Sets or verifies pressures of end states to be equal in all lines."""
         for line_endStates in self.lines:
             number_ofNumericPvals = sum(1 for state in line_endStates if isNumeric(getattr(state, 'P')))
             if number_ofNumericPvals == 2:
@@ -125,6 +125,7 @@ class HeatDevice(Device):
                 state_withNonNumericPval.P = state_withNumericPval.P
 
     def infer_fixed_exitT(self):
+        """Sets or verifies temperatures of *outlet states* *of all lines* to be equal."""
         state_out_withNumericT = None
         for line_endStates in self.lines:
             if line_endStates[1].hasDefined('T'):
@@ -176,29 +177,74 @@ class Condenser(HeatDevice):
         super(Condenser, self).__init__()
 
 
-class FeedwaterHeater_Closed(HeatDevice):
+class MixingChamber(Device):
+    def __init__(self, infer_common_mixingPressure: bool = True):
+        super(MixingChamber, self).__init__()
+
+        self._infer_common_mixingPressure = infer_common_mixingPressure
+
+        self.states_in = []
+        self.state_out = None
+
+    @property
+    def endStates(self) -> List[StatePure]:
+        """Returns all end states, i.e. the single outlet state and the 1+ inlet state."""
+        all_endStates = [self.state_out]
+        for endState in self.states_in:
+            all_endStates.append(endState)
+        return all_endStates
+
+    def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+        """Mixing chambers accept multiple in flows and provides one out flow. Provided "state_in"s are appended to states_in list, and provided state_out is made the state_out."""
+        if state_in is not None:
+            self.states_in.append(state_in)
+        if state_out is not None:
+            self.state_out = state_out
+
+    def infer_common_mixingPressure(self):
+        """Sets or verifies pressures of all end states to be equal."""
+        states_withKnownPressure = [state for state in self.endStates if state.hasDefined('P')]
+        if states_withKnownPressure != []:
+            samplePressure = states_withKnownPressure[0].P
+            for state in self.endStates:
+                state.set_or_verify({'P': samplePressure})
+
+
+class ClosedFWHeater(HeatDevice):
     def __init__(self, *args, **kwargs):
-        super(FeedwaterHeater_Closed, self).__init__(*args, **kwargs)
+        super(ClosedFWHeater, self).__init__(*args, **kwargs)
         # Exit temperatures of lines passing through CFWH don't have to be the same. -> infer_fixed_exitT = False
 
-        self.lines_transit = []
-        self.lines_mixing = []
+        self.bundles = []
 
-
-class MixingChamber(HeatDevice):
-    def __init__(self, *args, infer_operatingPressure = True, **kwargs):
-        super(MixingChamber, self).__init__(*args, **kwargs)
-
-        self._infer_operatingPressure = infer_operatingPressure
+    def add_newBundle(self) -> MixingChamber:
+        self.bundles.append(MixingChamber)
+        return self.bundles[-1]  # return last one (just added)
 
 
 
 
+class OpenFWHeater(MixingChamber):
+    def __init__(self, *args, **kwargs):
+        super(OpenFWHeater, self).__init__(*args, **kwargs)
 
-class FeedwaterHeater_Open(HeatDevice):
-    def __init__(self):
-        super(FeedwaterHeater_Open, self).__init__()
+
 
 class ThrottlingValve:
     def __init__(self):
         pass
+
+
+class Trap(Device):
+    def __init__(self, infer_constant_enthalpy: bool = True):
+        super(Trap, self).__init__()
+
+        self._infer_constant_enthalpy = infer_constant_enthalpy
+
+    def infer_constant_enthalpy(self):
+        """Sets or verifies specific enthalpies of all end states to be equal."""
+        sampleEnthalpy = self.endStates[0].h
+        for state in self.endStates:
+            state.set_or_verify({'h': sampleEnthalpy})
+
+

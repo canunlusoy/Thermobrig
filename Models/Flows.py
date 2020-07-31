@@ -7,7 +7,7 @@ from Methods.ThprOps import get_state_out_actual
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
-from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor
+from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor, MixingChamber, OpenFWHeater, Trap
 
 from Utilities.Numeric import isNumeric, isWithin, twoList
 from Utilities.Exceptions import DataVerificationError
@@ -91,16 +91,16 @@ class Flow:
         if isinstance(device, WorkDevice):
 
             # Actual outlet state determination from ideal outlet state - has to be here, need to know fluid to define state
-            if device.eta_isentropic != 1:
-                for current_state_out in device.states_out:
-                    # Work devices may have multiple outlets with flows of different pressure. Repeat process for each state_out.
-                    if device.state_in.isFullyDefined() and current_state_out.hasDefined('P'):
-                        # going to overwrite state_out
-                        current_state_out.copy_fromState(get_state_out_actual(state_in=device.state_in,
-                                                                              state_out_ideal=current_state_out,  # uses only the P information from available state_out
-                                                                              eta_isentropic=device.eta_isentropic,
-                                                                              fluid=self.workingFluid))
-                        assert current_state_out.isFullyDefined()
+
+            for current_state_out in device.states_out:
+                # Work devices may have multiple outlets with flows of different pressure. Repeat process for each state_out.
+                if device.state_in.isFullyDefined() and current_state_out.hasDefined('P'):
+                    # going to overwrite state_out
+                    current_state_out.copy_fromState(get_state_out_actual(state_in=device.state_in,
+                                                                          state_out_ideal=current_state_out,  # uses only the P information from available state_out
+                                                                          eta_isentropic=device.eta_isentropic,
+                                                                          fluid=self.workingFluid))
+                    assert current_state_out.isFullyDefined()
 
         if isinstance(device, HeatDevice):
 
@@ -112,6 +112,18 @@ class Flow:
             if device._infer_fixed_exitT:
                 device.infer_fixed_exitT()
 
+        if isinstance(device, MixingChamber):
+
+            # Setting pressures of all in / out flows to the same value
+            if device._infer_common_mixingPressure:
+                device.infer_common_mixingPressure()
+
+            # Heat balance needs mass fractions of multiple input flows. This must be done at cycle scope.
+
+        if isinstance(device, Trap):
+            if device._infer_constant_enthalpy:
+                device.infer_constant_enthalpy()
+
         self._defineStates_ifDefinable(endStates)
 
     def solve(self):
@@ -119,6 +131,7 @@ class Flow:
         self._set_devices_stateReferences()
 
         for device in self.devices:
+            print('Solving device: {0}'.format(device))
             self._solveDevice(device)
 
         self._define_definableStates()
@@ -140,7 +153,12 @@ class Flow:
     def net_sWorkExtracted(self):
         total_sWorkExtracted = 0
         for device in self.workDevices:
-            total_sWorkExtracted += device.sWorkExtracted
+
+            deviceIndex_inFlow = self.items.index(device)
+            stateBefore = self.items[deviceIndex_inFlow - 1]
+            stateAfter = self.items[deviceIndex_inFlow + 1]
+            total_sWorkExtracted += stateBefore.h - stateAfter.h
+
         return total_sWorkExtracted
 
     @property

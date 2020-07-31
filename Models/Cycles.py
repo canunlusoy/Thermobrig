@@ -8,3 +8,10 @@ class Cycle:
         pass
 
 
+    def solve(self):
+
+        for flow in self.flows:
+            flow.solve()
+
+        # find flow intersections
+        # solve mixing chambers

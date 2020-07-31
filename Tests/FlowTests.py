@@ -4,7 +4,7 @@ from typing import Dict, Union
 
 from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
-from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, FeedwaterHeater_Closed
+from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, ClosedFWHeater, OpenFWHeater, Trap
 from Models.Fluids import Fluid, IdealGas
 from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
 
@@ -89,54 +89,58 @@ class TestFlows(unittest.TestCase):
 
     def test_flows_water_02(self):
 
-        flow = Flow(workingFluid=water)
-        flow.items = [StatePure(P=15000, T=600),
-                      Turbine(),
-                      StatePure(P=1000),
-                      rhBoiler := Boiler(),
-                      StatePure(T=500),
-                      Turbine(),
-                      turbine_d1 := StatePure(P=600)]
+        # MECH 2201 - A9 Q2
 
-        flow_a = Flow(workingFluid=water)
-        flow_a.items = [turbine_d1,
-                        c_fwh := Device(),
-                        StatePure(x=0),
-                        Device(),
-                        StatePure(P=200),
-                        o_fwh := Device()]
-
-        flow_b = Flow(workingFluid=water)
-        flow_b.items = [turbine_d1,
-                        Turbine(),
-                        turbine_d2 := StatePure(P=200),
-                        o_fwh]
-
-        flow_c = Flow(workingFluid=water)
-        flow_c.items = [turbine_d1,
-                        Turbine(),
-                        turbine_d2,
-                        Turbine(),
-                        StatePure(P=5),
+        flow_a = Flow(water)
+        flow_a.items = [ofwh := OpenFWHeater(),
+                        state_7 := StatePure(),
                         Pump(),
-                        StatePure(P=200),
-                        o_fwh]
+                        state_8 := StatePure(P=15000),
+                        cfwh_mainline := (cfwh := ClosedFWHeater()).add_newBundle(),
+                        state_9 := StatePure(T=StatePure(P=600, x=0).T),
+                        boiler := Boiler(),
+                        state_1 := StatePure(P=15000, T=600),
+                        turbine := Turbine(),
+                        state_2 := StatePure(P=1000),
+                        boiler,
+                        state_3 := StatePure(P=1000, T=500),
+                        turbine,
+                        state_10 := StatePure(P=600)]
 
-        flow_d = Flow(workingFluid=water)
-        flow_d.items = [StatePure(),
-                        Condenser(),
-                        StatePure(P=5),
-                        Pump(),
-                        StatePure(P=200)]
+        flow_b = Flow(water)
+        flow_b.items = [state_10,
+                        cfwh_lineFlowB := cfwh.add_newBundle(),
+                        state_11 := StatePure(x=0),
+                        Trap(),
+                        state_12 := StatePure(P=200),
+                        ofwh]
 
-        flow_e = Flow(workingFluid=water)
-        flow_e.items = [o_fwh,
-                        StatePure(),
+        flow_c = Flow(water)
+        flow_c.items = [state_10,
+                        turbine,
+                        state_13 := StatePure(P=200),
+                        ofwh]
+
+        flow_d = Flow(water)
+        flow_d.items = [state_10,
+                        turbine,
+                        state_13,
+                        turbine,
+                        state_4 := StatePure(),
+                        condenser := Condenser(),
+                        state_5 := StatePure(P=5),
                         Pump(),
-                        StatePure(P=15000),
-                        c_fwh,
-                        StatePure(x=0),
-                        rhBoiler]
+                        state_6 := StatePure(P=200),
+                        ofwh]
+
+        flow_a.solve()
+        flow_b.solve()
+        flow_c.solve()
+        flow_d.solve()
+
+
+
+        print(3)
 
     def test_flows_water_03(self):
 
@@ -145,9 +149,9 @@ class TestFlows(unittest.TestCase):
                         state_1 := StatePure(P=20),
                         Pump(),
                         state_2 := StatePure(P=5000),
-                        fwh_a := FeedwaterHeater_Closed(),
+                        fwh_a := ClosedFWHeater(),
                         state_3 := StatePure(),
-                        fwh_b := FeedwaterHeater_Closed(),
+                        fwh_b := ClosedFWHeater(),
                         state_4 := StatePure(),
                         Boiler(),
                         state_5 := StatePure(T=700),
