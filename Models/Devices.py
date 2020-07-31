@@ -81,6 +81,33 @@ class Turbine(WorkDevice):
     def __init__(self, eta_isentropic: float = 1):
         super(Turbine, self).__init__(eta_isentropic)
 
+    def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+        """This method is overridden for turbines. Proposed state_in is compared with the existing state_in (if one has already been set), and the existing state_in is replaced with the
+        proposed one only if the pressure of the proposed state_in is higher than the pressure of the existing. This is done since pressure is expected to fall continuously through the turbine.
+        In cases of regeneration, flows may be extracted from the turbine. Flows continuing through the turbine (those not extracted) will have an items list which includes the state at which
+        extraction is made, then the turbine, and then the state they leave the turbine. When the flow items list is evaluated to set state references for the turbine, the intermediate state at
+        which extraction is made may be wrongly assumed to be the state_in of the whole turbine. The comparison of proposed state_in to that of the existing one ensures that the set state_in is the
+        very initial state at which all flows enter the turbine."""
+
+        if state_in is not None:
+            current_state_in = self.state_in
+            proposed_state_in = state_in
+
+            # state_in of the turbine should be the very first state_in.
+            if current_state_in is not None:
+                if current_state_in.P < proposed_state_in.P:
+                    self.states_out.append(current_state_in)
+                    self.state_in = proposed_state_in
+                else:
+                    if proposed_state_in not in self.states_out:
+                        self.states_out.append(proposed_state_in)
+            else:
+                self.state_in = proposed_state_in
+
+        if state_out is not None:
+            if state_out not in self.states_out:
+                self.states_out.append(state_out)
+
 
 class HeatDevice(Device):
     def __init__(self, T_exit_fixed: float = float('nan'),
@@ -127,13 +154,21 @@ class HeatDevice(Device):
     def infer_fixed_exitT(self):
         """Sets or verifies temperatures of *outlet states* *of all lines* to be equal."""
         state_out_withNumericT = None
+
         for line_endStates in self.lines:
             if line_endStates[1].hasDefined('T'):
                 state_out_withNumericT = line_endStates[1]
                 break
-        self.set_or_verify({'T_exit_fixed': state_out_withNumericT.T})
-        for line_endStates in self.lines:
-            line_endStates[1].set_or_verify({'T': self.T_exit_fixed})
+
+        if state_out_withNumericT is not None:
+            self.set_or_verify({'T_exit_fixed': state_out_withNumericT.T})
+
+            for line_endStates in self.lines:
+                try:
+                    line_endStates[1].set_or_verify({'T': self.T_exit_fixed})
+                except AssertionError:
+                    print('InputError: Boiler is configured to infer fixed exit temperature, i.e. assumes all entering flows leave at same temperature.\n'
+                          'Line consisting of {0} \nthrough the boiler has input data at its exit state conflicting with the inferred fixed exit temperature of {1}.'.format(line_endStates, self.T_exit_fixed))
 
     @property
     def total_net_sHeatSupplied(self):
@@ -216,12 +251,12 @@ class ClosedFWHeater(HeatDevice):
         # Exit temperatures of lines passing through CFWH don't have to be the same. -> infer_fixed_exitT = False
 
         self.bundles = []
+        # Each bundle is collection of flows coming in and leaving as one flow.
 
     def add_newBundle(self) -> MixingChamber:
-        self.bundles.append(MixingChamber)
+        """Creates a new bundle (= mixing chamber), appends it to the bundles list, and returns the reference to it."""
+        self.bundles.append(MixingChamber())
         return self.bundles[-1]  # return last one (just added)
-
-
 
 
 class OpenFWHeater(MixingChamber):

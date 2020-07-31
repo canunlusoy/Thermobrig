@@ -2,6 +2,7 @@ import unittest
 
 from typing import Dict, Union
 
+from Models.Cycles import Cycle
 from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
 from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, ClosedFWHeater, OpenFWHeater, Trap
@@ -97,14 +98,14 @@ class TestFlows(unittest.TestCase):
                         Pump(),
                         state_8 := StatePure(P=15000),
                         cfwh_mainline := (cfwh := ClosedFWHeater()).add_newBundle(),
-                        state_9 := StatePure(T=StatePure(P=600, x=0).T),
-                        boiler := Boiler(),
+                        state_9 := StatePure(T=water.define(StatePure(P=600, x=0)).T),
+                        boiler := Boiler(infer_fixed_exitT=False),
                         state_1 := StatePure(P=15000, T=600),
-                        turbine := Turbine(),
+                        turbine_a := Turbine(),
                         state_2 := StatePure(P=1000),
                         boiler,
                         state_3 := StatePure(P=1000, T=500),
-                        turbine,
+                        turbine_b := Turbine(),
                         state_10 := StatePure(P=600)]
 
         flow_b = Flow(water)
@@ -117,15 +118,15 @@ class TestFlows(unittest.TestCase):
 
         flow_c = Flow(water)
         flow_c.items = [state_10,
-                        turbine,
+                        turbine_b,
                         state_13 := StatePure(P=200),
                         ofwh]
 
         flow_d = Flow(water)
         flow_d.items = [state_10,
-                        turbine,
+                        turbine_b,
                         state_13,
-                        turbine,
+                        turbine_b,
                         state_4 := StatePure(),
                         condenser := Condenser(),
                         state_5 := StatePure(P=5),
@@ -133,10 +134,13 @@ class TestFlows(unittest.TestCase):
                         state_6 := StatePure(P=200),
                         ofwh]
 
-        flow_a.solve()
-        flow_b.solve()
-        flow_c.solve()
-        flow_d.solve()
+        cycle = Cycle()
+        cycle.flows = [flow_a,
+                       flow_b,
+                       flow_c,
+                       flow_d]
+
+        cycle.solve()
 
 
 

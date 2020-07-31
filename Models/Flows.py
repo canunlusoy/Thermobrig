@@ -94,7 +94,7 @@ class Flow:
 
             for current_state_out in device.states_out:
                 # Work devices may have multiple outlets with flows of different pressure. Repeat process for each state_out.
-                if device.state_in.isFullyDefined() and current_state_out.hasDefined('P'):
+                if device.state_in.hasDefined('s') and device.state_in.hasDefined('h') and current_state_out.hasDefined('P'):
                     # going to overwrite state_out
                     current_state_out.copy_fromState(get_state_out_actual(state_in=device.state_in,
                                                                           state_out_ideal=current_state_out,  # uses only the P information from available state_out
@@ -138,7 +138,7 @@ class Flow:
 
         get_undefinedStates = lambda: [state for state in self.states if not state.isFullyDefined()]
         iterationCounter = 0
-        while (undefinedStates := get_undefinedStates()) != []:
+        while (undefinedStates := get_undefinedStates()) != [] and iterationCounter < 5:
             iterationCounter += 1
             print('Flow solution iteration #{0}'.format(iterationCounter))
             for state in undefinedStates:
