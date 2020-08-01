@@ -93,6 +93,8 @@ class TestFlows(unittest.TestCase):
         # MECH 2201 - A9 Q2
 
         flow_a = Flow(water)
+        flow_a.massFR = 42
+        flow_a.massFF = 1
         flow_a.items = [ofwh := OpenFWHeater(),
                         state_7 := StatePure(),
                         Pump(),
@@ -162,7 +164,7 @@ class TestFlows(unittest.TestCase):
                         turbine := Turbine(eta_isentropic=1)]
 
         flow_b = Flow(water)
-        flow_b.massFlowFraction = 0.1446
+        flow_b.massFF = 0.1446
         flow_b.items = [turbine,
                         state_6 := StatePure(P=1400),
                         fwh_b,

@@ -21,7 +21,8 @@ class Flow:
 
         # Not considering flows with multiple fluids, one flow can contain only one fluid
         self.workingFluid = workingFluid
-        self.massFlowFraction = massFlowFraction
+        self.massFR = massFlowRate
+        self.massFF = massFlowFraction
 
 
         self.items = []
@@ -30,20 +31,36 @@ class Flow:
 
 
     @property
-    def states(self):
+    def states(self) -> List[StatePure]:
         return [item for item in self.items if isinstance(item, StatePure)]
 
     @property
-    def devices(self):
+    def devices(self) -> List[Device]:
         return [item for item in self.items if isinstance(item, Device)]
 
     @property
-    def workDevices(self):
+    def workDevices(self) -> List[WorkDevice]:
         return [item for item in self.items if isinstance(item, WorkDevice)]
 
     @property
-    def heatDevices(self):
+    def heatDevices(self) -> List[HeatDevice]:
         return [item for item in self.items if isinstance(item, HeatDevice)]
+
+    def get_surroundingItems(self, item: Union[StatePure, Device], includeNone: bool = False) -> List[Union[StatePure, Device]]:
+        """Returns a list of items before and after the provided item in the flow items list.
+        If includeNone, if there is no surrounding value from one side, a None value is added in its place to the returned list."""
+        surroundingItems = []
+        if item in self.items:
+            itemIndex = self.items.index(item)
+            if itemIndex > 0:  # item is not the first item in items list, there is at least one more item before it
+                surroundingItems.append(self.items[itemIndex - 1])
+            elif includeNone:
+                surroundingItems.append(None)
+            if itemIndex < len(self.items) - 1:  # item is not the last item, there is at least one more item after it
+                surroundingItems.append(self.items[itemIndex + 1])
+            elif includeNone:
+                surroundingItems.append(None)
+        return surroundingItems
 
     def _check_itemsConsistency(self):
         """Check if items of flow are either states or devices, and if a state is always followed by a device or vice versa."""

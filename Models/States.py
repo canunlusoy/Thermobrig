@@ -1,11 +1,10 @@
 from pandas import DataFrame
 
-from math import exp
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Union, Dict, List
 
-from Utilities.Numeric import isNumeric, get_rangeEndpoints, isWithin
+from Utilities.Numeric import isNumeric, isWithin
 
 @dataclass
 class StatePure:
@@ -23,9 +22,7 @@ class StatePure:
 
     def hasDefined(self, propertyName: str) -> bool:
         """Returns true if a value for the given property is defined."""
-        if isNumeric(getattr(self, propertyName)):
-            return True
-        return False
+        return isNumeric(getattr(self, propertyName))
 
     def isFullyDefined(self, consider_mixProperties: bool = True) -> bool:
         propertyList = self._properties_all

@@ -130,3 +130,18 @@ class twoList(UserList):
             if condition(item):
                 return item
         return None
+
+
+class associatedPair:
+
+    def __init__(self, item_1, item_2):
+        self.item_1 = item_1
+        self.item_2 = item_2
+
+    def get_associate(self, item):
+        if item is self.item_1:
+            return self.item_2
+        elif item is self.item_2:
+            return self.item_1
+
+

@@ -14,6 +14,9 @@ class Device:
         self.state_in: StatePure = None
         self.state_out: StatePure = None
 
+        # mainly to accommodate closed feedwater heaters' bundles (mixing chambers)
+        self.parentDevice: Device = None
+
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
         if state_in is not None:
             self.state_in = state_in
@@ -218,8 +221,8 @@ class MixingChamber(Device):
 
         self._infer_common_mixingPressure = infer_common_mixingPressure
 
-        self.states_in = []
-        self.state_out = None
+        self.states_in: List[StatePure] = []
+        self.state_out: StatePure = None
 
     @property
     def endStates(self) -> List[StatePure]:
@@ -253,16 +256,33 @@ class ClosedFWHeater(HeatDevice):
         self.bundles = []
         # Each bundle is collection of flows coming in and leaving as one flow.
 
-    def add_newBundle(self) -> MixingChamber:
+    class Bundle:
+        def __init__(self):
+            self.states_in: List[StatePure] = []
+            self.state_out: StatePure = None
+            self.parentDevice: Device = None
+
+        def set_states(self, state_in: StatePure, state_out: StatePure):
+            if state_in not in self.states_in:
+                self.states_in.append(state_in)
+            self.state_out = state_out
+
+    def add_newBundle(self) -> Bundle:
         """Creates a new bundle (= mixing chamber), appends it to the bundles list, and returns the reference to it."""
-        self.bundles.append(MixingChamber())
-        return self.bundles[-1]  # return last one (just added)
+        bundle = self.Bundle()
+        bundle.parentDevice = self
+        self.bundles.append(bundle)
+        return bundle
 
 
 class OpenFWHeater(MixingChamber):
     def __init__(self, *args, **kwargs):
         super(OpenFWHeater, self).__init__(*args, **kwargs)
 
+
+class HeatExchanger(HeatDevice):
+    def __init__(self):
+        super(HeatExchanger, self).__init__(infer_fixed_exitT=False, infer_constant_lineP=True)
 
 
 class ThrottlingValve:
