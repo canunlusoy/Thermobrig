@@ -1,7 +1,7 @@
 
 from math import exp
 from operator import itemgetter
-from typing import Union, List
+from typing import Union, List, Dict
 
 from Methods.ThprOps import get_state_out_actual
 
@@ -9,7 +9,8 @@ from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
 from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor, MixingChamber, OpenFWHeater, Trap
 
-from Utilities.Numeric import isNumeric, isWithin, twoList
+from Utilities.Numeric import isNumeric, isWithin
+from Utilities.PrgUtilities import twoList
 from Utilities.Exceptions import DataVerificationError
 
 # FLOWS include relations between states (same T / P / h / s)
@@ -45,6 +46,18 @@ class Flow:
     @property
     def heatDevices(self) -> List[HeatDevice]:
         return [item for item in self.items if isinstance(item, HeatDevice)]
+
+    def isFullyDefined(self):
+        """Checks if all states in the flow are fully defined."""
+        return all(state.isFullyDefined() for state in self.states)
+
+    def set_or_verify(self, setDict: Dict):
+        for parameterName in setDict:
+            if hasattr(self, parameterName):
+                if not isNumeric(getattr(self, parameterName)):
+                    setattr(self, parameterName, setDict[parameterName])
+                else:
+                    assert isWithin(getattr(self, parameterName), 3, '%', setDict[parameterName])
 
     def get_surroundingItems(self, item: Union[StatePure, Device], includeNone: bool = False) -> List[Union[StatePure, Device]]:
         """Returns a list of items before and after the provided item in the flow items list.

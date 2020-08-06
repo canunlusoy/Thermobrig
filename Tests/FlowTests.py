@@ -5,7 +5,7 @@ from typing import Dict, Union
 from Models.Cycles import Cycle
 from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
-from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, ClosedFWHeater, OpenFWHeater, Trap
+from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, ClosedFWHeater, OpenFWHeater, Trap, HeatExchanger
 from Models.Fluids import Fluid, IdealGas
 from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
 
@@ -99,7 +99,7 @@ class TestFlows(unittest.TestCase):
                         state_7 := StatePure(),
                         Pump(),
                         state_8 := StatePure(P=15000),
-                        cfwh_mainline := (cfwh := ClosedFWHeater()).add_newBundle(),
+                        heatExchanger := HeatExchanger(),
                         state_9 := StatePure(T=water.define(StatePure(P=600, x=0)).T),
                         boiler := Boiler(infer_fixed_exitT=False),
                         state_1 := StatePure(P=15000, T=600),
@@ -112,7 +112,7 @@ class TestFlows(unittest.TestCase):
 
         flow_b = Flow(water)
         flow_b.items = [state_10,
-                        cfwh_lineFlowB := cfwh.add_newBundle(),
+                        heatExchanger,
                         state_11 := StatePure(x=0),
                         Trap(),
                         state_12 := StatePure(P=200),
@@ -150,14 +150,17 @@ class TestFlows(unittest.TestCase):
 
     def test_flows_water_03(self):
 
+        print('CENGEL P10.57')
+
         flow_a = Flow(water)
+        flow_a.massFF = 1
         flow_a.items = [condenser := Condenser(),
                         state_1 := StatePure(P=20),
                         Pump(),
                         state_2 := StatePure(P=5000),
-                        fwh_a := ClosedFWHeater(),
+                        cfwhA_transit := (cfwhA := ClosedFWHeater()).add_newBundle(),
                         state_3 := StatePure(),
-                        fwh_b := ClosedFWHeater(),
+                        cfwhB_main := (cfwhB := ClosedFWHeater()).add_newBundle(),
                         state_4 := StatePure(),
                         Boiler(),
                         state_5 := StatePure(T=700),
@@ -167,29 +170,37 @@ class TestFlows(unittest.TestCase):
         flow_b.massFF = 0.1446
         flow_b.items = [turbine,
                         state_6 := StatePure(P=1400),
-                        fwh_b,
+                        cfwhB_second := cfwhB.add_newBundle(),
                         state_9 := StatePure(),
-                        Device(),
+                        Trap(),
                         state_10 := StatePure(),
-                        fwh_a]
+                        cfwhA_mixing := cfwhA.add_newBundle()]
 
         flow_c = Flow(water)
         flow_c.items = [turbine,
                         state_7 := StatePure(P=245),
-                        fwh_a]
+                        cfwhA_mixing]
 
         flow_d = Flow(water)
-        flow_d.items = [fwh_a,
+        flow_d.items = [cfwhA_mixing,
                         state_11 := StatePure(),
-                        Device(),
+                        Trap(),
                         state_12 := StatePure(),
                         condenser]
 
         flow_e = Flow(water)
         flow_e.items = [turbine,
-                        state_8 := StatePure(P=20)]
+                        state_8 := StatePure(P=20),
+                        condenser]
 
-
+        cycle = Cycle()
+        cycle.flows = [flow_a,
+                       flow_b,
+                       flow_c,
+                       flow_d,
+                       flow_e]
+        cycle.solve()
+        print(4)
 
 
     # def test_flows_air_01(self):

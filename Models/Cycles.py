@@ -1,101 +1,130 @@
 
-from typing import List, Dict
+from typing import List, Dict, Set
 from itertools import combinations
 
 from Models.Flows import Flow
 from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger
 from Models.States import StatePure
 from Utilities.PrgUtilities import findItem
-from Utilities.Numeric import isNumeric, associatedPair
+from Utilities.Numeric import isNumeric
 
 class Cycle:
 
-    def __init__(self):
+    def __init__(self, infer_mainLine: bool = True):
 
         self.flows: List[Flow] = []
+
+        self._infer_mainLine = infer_mainLine
         pass
 
     def solve(self):
 
+        if self._infer_mainLine:
+            if all(not flow.massFF == 1 for flow in self.flows):  # if any flow already has its mass flow fraction defined as 1, it is the mainLine, don't try to infer any
+                self.infer_mainLine()
+
+        self._add_flowReferences_toStates()
+
         for flow in self.flows:
             flow.solve()
 
-        intersections = self._identify_intersections()
+        if not all(flow.isFullyDefined() for flow in self.flows):
+            intersections = self._identify_intersections()
+            for device in intersections:
+                self._solveIntersection(device)
 
-        for device in intersections:
-            print('Solving intersection: {0}'.format(device))
-            self._solveIntersection(device)
+    def _add_flowReferences_toStates(self):
+        """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
+        # Not a big fan of doing this - states are a lower level entity than flows and should not have access to the higher level entity which contains it.
+        # Instead, they should be accessed from the flows which contain them. But had to resort to this for convenience.
+        for flow in self.flows:
+            for state in flow.states:
+                setattr(state, 'flow', flow)
 
     def _identify_intersections(self):
-        """First / last devices in flow items lists are checked if they appear in multiple flows' items lists. If so, they are inferred to be intersections, i.e. points where flows diverge or combine."""
-        intersections, endPoints = set(), set()
+        """Iterates through flows' items to find intersections. Specifically, checks for shared endpoints and devices."""
 
-        # Find connection points, i.e. where flows merge or diverge
+        endPoints = []
+        intersections = set()
+
+        # Identify end connections - DEVICES
         for flow in self.flows:
             for endPoint in [flow.items[0], flow.items[-1]]:
-                if isinstance(endPoint, Device):
+                if isinstance(endPoint, Device):  # endPoint may be a state or a device! - pick devices
                     if endPoint not in endPoints:
-                        endPoints.add(endPoint)
+                        endPoints.append((endPoint, flow))
                     else:
+                        # this endPoint of this flow is already registered as an endPoint, likely by some other flow,
+                        # or by the same flow in the previous iteration of the inner for loop in case of a cyclic flow.
                         intersections.add(endPoint)
 
-        # Find cross-overs, i.e. where flows interact without mixing, e.g. in heat exchangers
-        for flow, otherFlow in list(combinations(self.flows, 2)):
-            for flow_device in flow.devices:
-
-                # if the same device appears also in the other flow, and if the states surrounding the same device are different in both flows
-                if flow_device in otherFlow.devices and all(item not in otherFlow.get_surroundingItems(flow_device) for item in flow.get_surroundingItems(flow_device)):
-                    intersections.add(flow_device)
-
-                # if the flow device has a parent device, and the same parent is the parent of another device in the other flow
-                if flow_device.parentDevice is not None and any(otherFlow_device.parentDevice is flow_device.parentDevice for otherFlow_device in otherFlow.devices):
-                    intersections.add(flow_device.parentDevice)
+        # Identify crossover points - DEVICES
+        for flow, otherFlow in combinations(self.flows, 2):
+            flow_itemSet, otherFlow_itemSet = set(flow.items[1:-1]), set(otherFlow.items[1:-1])  # [1:-1] not to include endPoints, as their intersections are covered by above process
+            intersections.add(item for item in flow_itemSet.intersection(otherFlow_itemSet) if isinstance(item, Device))  # add *devices* encountered in both flows
 
         return intersections
 
+    def infer_mainLine(self):
+
+        if len(self.flows) == 1:
+            # If there is only one flow, it has all the mass flowing through it. This flow may or may not be a cycle!
+            self.flows[0].set_or_verify({'massFF': 1})
+        else:
+            raise NotImplementedError
+
     def _solveIntersection(self, device: Device):
 
-        if isinstance(device, ClosedFWHeater):
-
-            cFWH_heatExchanger = HeatExchanger()
-
-            for bundle in device.bundles:
-                bundle_mixingChamber = MixingChamber()
-                bundle_mixingChamber.states_in = bundle.states_in
-
-                self.solve_mixingChamber(bundle_mixingChamber)
-
-                cFWH_heatExchanger.lines.append([bundle_mixingChamber.state_out, bundle.state_out])
-
-            self.solve_heatExchanger(cFWH_heatExchanger)
+        if isinstance(device, HeatExchanger):
+            self.solve_heatExchanger(device)
 
         elif isinstance(device, MixingChamber):
             self.solve_mixingChamber(device)
 
 
-    def _find_flows_of_states(self, states: List[StatePure]) -> Dict[Flow, StatePure]:
-        """Returns a dictionary mapping provided states to the flows which they belong."""
-        flow_state_dict = {}
-        for state in states:
-            for flow in self.flows:
-                if state in flow.items:  # assumes one state_in to the mixing chamber is associated only with one flow
-                    flow_state_dict.update({flow: state})
-        return flow_state_dict
-
-    def _find_flow_of_state(self, state: StatePure) -> Flow:
-        for flow in self.flows:
-            if state in flow.items:  # assumes one state_in to the mixing chamber is associated only with one flow
-                return flow
-
-
-
     def solve_heatExchanger(self, device: HeatExchanger):
+        """Does a heat balance over the flows entering and exiting the heat exchanger, calculates the missing property and sets its value in the relevant object."""
 
-        for line_state_in, line_state_out in device:
+        # m1h11 + m2h21 + m3h31 = m1h12 + m2h22 + m3h32
 
+        # Cases:
+        # [1] One mass flow fraction is unknown
+        # [2] One specific enthalpy is unknown
 
-            pass
+        lines_withUnknown_massFF, states_withUnknown_enthalpies = [], []
+        for line in device.lines:
+            if not isNumeric(line[0].flow.massFF):  # check if the flow of the first endState of the line (state_in of line) has numeric massFF
+                lines_withUnknown_massFF.append(line)
+            for endState_index, line_endState in enumerate(line):
+                if not isNumeric(line_endState.h):
+                    states_withUnknown_enthalpies.append((endState_index, line_endState))
 
+        number_of_unknown_massFFs = len(lines_withUnknown_massFF)
+        number_of_unknown_enthalpies = len(states_withUnknown_enthalpies)
+
+        # Case [1]
+        if number_of_unknown_massFFs == 1 and number_of_unknown_enthalpies == 0:
+            line_withUnknown_massFF = lines_withUnknown_massFF[0]
+
+            sum_sideA = 0
+            for line_state_in, line_state_out in [line for line in device.lines if line is not line_withUnknown_massFF]:
+                line_massFF = line_state_in.flow.massFF
+                sum_sideA += (line_massFF * (line_state_in.h - line_state_out.h))
+
+            delta_h_sideB = line_withUnknown_massFF[1].h - line_withUnknown_massFF[0].h
+            line_withUnknown_massFF[0].flow.massFF = (sum_sideA / delta_h_sideB)
+
+        # Case [2]
+        elif number_of_unknown_massFFs == 0 and number_of_unknown_enthalpies == 1:
+            endState_index, state_withUnknown_enthalpy = states_withUnknown_enthalpies[0]
+
+            # Side A is the side of the heat balance with the unknown enthalpy, Side B is the one with all terms known.
+            fullyDefinedStates_ofSideA = [line[endState_index] for line in device.lines if line[endState_index] is not state_withUnknown_enthalpy]
+            states_ofSideB = [line[endState_index - 1] for line in device.lines]
+
+            H_tot_sideB = sum(state.flow.massFF * state.h for state in states_ofSideB)
+            known_H_tot_sideA = sum(state.flow.massFF * state.h for state in fullyDefinedStates_ofSideA)
+            state_withUnknown_enthalpy.h = (H_tot_sideB - known_H_tot_sideA) / state_withUnknown_enthalpy.flow.massFF
 
     def solve_mixingChamber(self, device: MixingChamber):
 
@@ -115,7 +144,7 @@ class Cycle:
         # Need to solve for enthalpy
         if number_ofUnknownEnthalpies <= 1 and number_ofUnknownMassFF == 0:
 
-            state_no_h = findItem(endStates, lambda state: not isNumeric('h'))
+            state_no_h = findItem(endStates, lambda state: not isNumeric(state.h))
 
             if state_no_h is device.state_out:
                 device.state_out.h = (sum(flow.massFF * state.h for flow, state in flows_states.items())) / outflow.massFF
@@ -134,24 +163,4 @@ class Cycle:
                 flow_no_MFF.massFF = (outflow.massFF * device.state_out.h - sum(flow.massFF * state.h for flow, state in flows_states.items() if state is not device.state_out and state is not flows_states[flow_no_MFF])) / flows_states[flow_no_MFF].h
                 assert flow_no_MFF.massFF == outflow.massFF - sum(flow.massFF for flow in flows_states.keys() if flow is not outflow and flow is not flow_no_MFF)
 
-    def find_divergencePoints(self):
 
-        flow_items_dict = {flow: flow.items for flow in self.flows}
-
-        for flow in self.flows:
-            otherFlows = [otherFlow for otherFlow in self.flows if otherFlow is not flow]
-
-            for otherFlow in otherFlows:
-                if otherFlow.states[0] in flow.states:
-                    print('{0} diverges from {1}'.format(otherFlow, flow))
-
-
-
-
-
-
-
-
-
-        # find flow intersections
-        # solve mixing chambers

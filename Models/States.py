@@ -128,4 +128,3 @@ class StateIGas(StatePure):
     _properties_mixture = ['x']
     _properties_all = _properties_regular + _properties_mixture
 
-

@@ -4,7 +4,8 @@ from typing import Dict, List
 from Models.States import StatePure
 from Methods.ThprOps import get_state_out_actual
 
-from Utilities.Numeric import isNumeric, isWithin, twoList
+from Utilities.Numeric import isNumeric, isWithin
+from Utilities.PrgUtilities import twoList
 
 
 class Device:
@@ -214,6 +215,13 @@ class Condenser(HeatDevice):
     def __init__(self):
         super(Condenser, self).__init__()
 
+    # def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+    #     # overridden not to have any lines
+    #     if state_in is not None:
+    #         self.state_in = state_in
+    #     if state_out is not None:
+    #         self.state_out = state_out
+
 
 class MixingChamber(Device):
     def __init__(self, infer_common_mixingPressure: bool = True):
@@ -256,8 +264,9 @@ class ClosedFWHeater(HeatDevice):
         self.bundles = []
         # Each bundle is collection of flows coming in and leaving as one flow.
 
-    class Bundle:
+    class Bundle(Device):
         def __init__(self):
+            super(ClosedFWHeater.Bundle, self).__init__()
             self.states_in: List[StatePure] = []
             self.state_out: StatePure = None
             self.parentDevice: Device = None
@@ -283,6 +292,7 @@ class OpenFWHeater(MixingChamber):
 class HeatExchanger(HeatDevice):
     def __init__(self):
         super(HeatExchanger, self).__init__(infer_fixed_exitT=False, infer_constant_lineP=True)
+
 
 
 class ThrottlingValve:
