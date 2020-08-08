@@ -18,7 +18,7 @@ from Utilities.Exceptions import DataVerificationError
 
 class Flow:
 
-    def __init__(self, workingFluid: Fluid, massFlowRate: float = float('nan'), massFlowFraction: float = float('nan')):
+    def __init__(self, workingFluid: Fluid, massFlowRate: float = float('nan'), massFlowFraction: float = float('nan'), calculate_h_forIncompressibles: bool = False):
 
         # Not considering flows with multiple fluids, one flow can contain only one fluid
         self.workingFluid = workingFluid
@@ -30,6 +30,7 @@ class Flow:
         # Items is a list of devices and states making up the flow.
         # If flow is cyclic, items list should start with a state and end with the same state.
 
+        self._calculate_h_forIncompressibles = calculate_h_forIncompressibles
 
     @property
     def states(self) -> List[StatePure]:
@@ -125,11 +126,17 @@ class Flow:
             for current_state_out in device.states_out:
                 # Work devices may have multiple outlets with flows of different pressure. Repeat process for each state_out.
                 if device.state_in.hasDefined('s') and device.state_in.hasDefined('h') and current_state_out.hasDefined('P'):
+
                     # going to overwrite state_out
                     current_state_out.copy_fromState(get_state_out_actual(state_in=device.state_in,
                                                                           state_out_ideal=current_state_out,  # uses only the P information from available state_out
                                                                           eta_isentropic=device.eta_isentropic,
                                                                           fluid=self.workingFluid))
+
+                    if self._calculate_h_forIncompressibles and device.state_in.x <= 0 and device.state_in.hasDefined('P'):
+                        # overwrite h with calculated value
+                        current_state_out.h = device.state_in.h + device.state_in.mu * (current_state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
+
                     assert current_state_out.isFullyDefined()
 
         if isinstance(device, HeatDevice):

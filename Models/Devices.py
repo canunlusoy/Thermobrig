@@ -242,7 +242,7 @@ class MixingChamber(Device):
 
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
         """Mixing chambers accept multiple in flows and provides one out flow. Provided "state_in"s are appended to states_in list, and provided state_out is made the state_out."""
-        if state_in is not None:
+        if state_in is not None and state_in not in self.states_in:
             self.states_in.append(state_in)
         if state_out is not None:
             self.state_out = state_out
@@ -290,9 +290,8 @@ class OpenFWHeater(MixingChamber):
 
 
 class HeatExchanger(HeatDevice):
-    def __init__(self):
-        super(HeatExchanger, self).__init__(infer_fixed_exitT=False, infer_constant_lineP=True)
-
+    def __init__(self, infer_fixed_exitT: bool = False, infer_constant_lineP: bool = True):
+        super(HeatExchanger, self).__init__(infer_fixed_exitT=infer_fixed_exitT, infer_constant_lineP=infer_constant_lineP)
 
 
 class ThrottlingValve:

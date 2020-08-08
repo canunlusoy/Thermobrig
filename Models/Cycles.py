@@ -5,33 +5,30 @@ from itertools import combinations
 from Models.Flows import Flow
 from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger
 from Models.States import StatePure
-from Utilities.PrgUtilities import findItem
 from Utilities.Numeric import isNumeric
+from Utilities.PrgUtilities import LinearEquation
 
 class Cycle:
 
-    def __init__(self, infer_mainLine: bool = True):
-
+    def __init__(self):
         self.flows: List[Flow] = []
-
-        self._infer_mainLine = infer_mainLine
-        pass
 
     def solve(self):
 
-        if self._infer_mainLine:
-            if all(not flow.massFF == 1 for flow in self.flows):  # if any flow already has its mass flow fraction defined as 1, it is the mainLine, don't try to infer any
-                self.infer_mainLine()
-
         self._add_flowReferences_toStates()
+        intersections = self._get_intersections()
 
-        for flow in self.flows:
-            flow.solve()
+        iterationCounter = 0
+        while iterationCounter < 5:
 
-        if not all(flow.isFullyDefined() for flow in self.flows):
-            intersections = self._identify_intersections()
-            for device in intersections:
-                self._solveIntersection(device)
+            for flow in self.flows:
+                flow.solve()
+
+            if not all(flow.isFullyDefined() for flow in self.flows):
+                for device in intersections:
+                    self._solveIntersection(device)
+
+            iterationCounter += 1
 
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
@@ -41,7 +38,7 @@ class Cycle:
             for state in flow.states:
                 setattr(state, 'flow', flow)
 
-    def _identify_intersections(self):
+    def _get_intersections(self):
         """Iterates through flows' items to find intersections. Specifically, checks for shared endpoints and devices."""
 
         endPoints = []
@@ -60,27 +57,20 @@ class Cycle:
 
         # Identify crossover points - DEVICES
         for flow, otherFlow in combinations(self.flows, 2):
-            flow_itemSet, otherFlow_itemSet = set(flow.items[1:-1]), set(otherFlow.items[1:-1])  # [1:-1] not to include endPoints, as their intersections are covered by above process
-            intersections.add(item for item in flow_itemSet.intersection(otherFlow_itemSet) if isinstance(item, Device))  # add *devices* encountered in both flows
+            flow_itemSet, otherFlow_itemSet = set(item for item in flow.items[1:-1] if isinstance(item, Device)), set(item for item in otherFlow.items[1:-1] if isinstance(item, Device))
+            # [1:-1] not to include endPoints, as their intersections are covered by above process
+            intersections.update(item for item in flow_itemSet.intersection(otherFlow_itemSet) if isinstance(item, Device))  # add *devices* encountered in both flows
 
         return intersections
 
-    def infer_mainLine(self):
-
-        if len(self.flows) == 1:
-            # If there is only one flow, it has all the mass flowing through it. This flow may or may not be a cycle!
-            self.flows[0].set_or_verify({'massFF': 1})
-        else:
-            raise NotImplementedError
-
     def _solveIntersection(self, device: Device):
+        """Wrapper for various device solution methods. These methods need to be used in the cycle scope as they require information of interacting flows."""
 
         if isinstance(device, HeatExchanger):
             self.solve_heatExchanger(device)
 
         elif isinstance(device, MixingChamber):
             self.solve_mixingChamber(device)
-
 
     def solve_heatExchanger(self, device: HeatExchanger):
         """Does a heat balance over the flows entering and exiting the heat exchanger, calculates the missing property and sets its value in the relevant object."""
@@ -126,41 +116,64 @@ class Cycle:
             known_H_tot_sideA = sum(state.flow.massFF * state.h for state in fullyDefinedStates_ofSideA)
             state_withUnknown_enthalpy.h = (H_tot_sideB - known_H_tot_sideA) / state_withUnknown_enthalpy.flow.massFF
 
+
+
+
+
+
+
     def solve_mixingChamber(self, device: MixingChamber):
-
-        # Mixing chambers have multiple in flows and one out flow
-        endStates = list(device.states_in) + [device.state_out]
-
-        # Each end state is assumed to belong to a different flow
-        flows_states = self._find_flows_of_states(endStates)
-        outflow = self._find_flow_of_state(device.state_out)
-
-        # Heat balance
-        number_ofUnknownMassFF = sum(1 for flow in flows_states.keys() if not isNumeric(flow.massFF))
-        number_ofUnknownEnthalpies = sum(1 for flow in flows_states.keys() if not isNumeric(flows_states[flow].h))
 
         # m1h1 + m2h2 + m3h3 = m4h4
 
-        # Need to solve for enthalpy
-        if number_ofUnknownEnthalpies <= 1 and number_ofUnknownMassFF == 0:
+        # Cases:
+        # [1] One specific enthalpy is unknown
+        # [2] One mass flow fraction is unknown
 
-            state_no_h = findItem(endStates, lambda state: not isNumeric(state.h))
+        # m1 + m2 + m3 - m4 = 0
+        massBalance = LinearEquation([[(state.flow.massFF) for state in device.states_in] + [-1 * device.state_out.flow.massFF], 0])
+        if massBalance.isSolvable():
+            unknown_massFF, solution = massBalance.solve()
+            unknown_massFF = solution
 
-            if state_no_h is device.state_out:
-                device.state_out.h = (sum(flow.massFF * state.h for flow, state in flows_states.items())) / outflow.massFF
+        # m1h1 + m2h2 + m3h3 - m4h4 = 0
+        heatBalance = LinearEquation([[(state.flow.massFF * state.h) for state in device.states_in] + [device.state_out.flow.massFF * device.state_out.h], 0])
+        if heatBalance.isSolvable():
+            unknown_variable, solution = heatBalance.solve()
+            unknown_variable = solution
+
+        states_withUnknown_enthalpy, states_withUnknown_flow_massFF = [], []
+        for endState in device.endStates:
+            if not isNumeric(endState.flow.massFF):
+                states_withUnknown_flow_massFF.append(endState)
+            if not isNumeric(endState.h):
+                states_withUnknown_enthalpy.append(endState)
+
+        number_of_unknown_massFFs = len(states_withUnknown_flow_massFF)
+        number_of_unknown_enthalpies = len(states_withUnknown_enthalpy)
+
+        # Case [1] - Need to solve for enthalpy
+        if number_of_unknown_enthalpies == 1 and number_of_unknown_massFFs == 0:
+
+            state_no_enthalpy = states_withUnknown_enthalpy[0]
+
+            if state_no_enthalpy is device.state_out:
+                state_no_enthalpy.h = (sum(state.flow.massFF * state.h for state in device.endStates if state is not state_no_enthalpy)) / state_no_enthalpy.flow.massFF
             else:
-                state_no_h.h = (outflow.massFF * device.state_out.h - (sum(flow.massFF * state.h for flow, state in flows_states.items() if state is not state_no_h and state is not device.state_out))) / (self._find_flow_of_state(state_no_h).massFF)
+                state_no_enthalpy.h = (device.state_out.flow.massFF * device.state_out.h - (sum(state.flow.massFF * state.h for state in device.endStates if state is not state_no_enthalpy and state is not device.state_out))) / (state_no_enthalpy.flow.massFF)
 
-        # Need to solve for missing mass flow fraction
-        elif number_ofUnknownMassFF <= 1 and number_ofUnknownEnthalpies == 0:
+        # Case [2] - Need to solve for missing mass flow fraction
+        elif number_of_unknown_massFFs == 1 and number_of_unknown_enthalpies == 0:
 
-            flow_no_MFF = findItem(flows_states.keys(), lambda flow: not isNumeric(flow.massFF))
+            state_no_flow_massFF = states_withUnknown_flow_massFF[0]
 
-            if flow_no_MFF is outflow:
-                outflow.massFF = sum(flow.massFF * state.h for flow, state in flows_states.items() if flow is not outflow) / device.state_out.h
-                assert outflow.massFF == sum(flow.massFF for flow in flows_states.keys() if flow is not outflow)
+            if state_no_flow_massFF is device.state_out:
+                # Mass balance
+                state_no_flow_massFF.flow.massFF = sum(state.flow.massFF for state in device.states_in)
+                # Verify with heat balance
+                assert state_no_flow_massFF.flow.massFF == sum(state.flow.massFF * state.h for state in device.endStates if state is not device.state_out) / device.state_out.h
             else:
-                flow_no_MFF.massFF = (outflow.massFF * device.state_out.h - sum(flow.massFF * state.h for flow, state in flows_states.items() if state is not device.state_out and state is not flows_states[flow_no_MFF])) / flows_states[flow_no_MFF].h
-                assert flow_no_MFF.massFF == outflow.massFF - sum(flow.massFF for flow in flows_states.keys() if flow is not outflow and flow is not flow_no_MFF)
-
-
+                # Mass balance
+                state_no_flow_massFF.flow.massFF = device.state_out.flow.massFF - sum(state.flow.massFF for state in device.states_in if state is not state_no_flow_massFF)
+                # Verify with heat balance
+                assert state_no_flow_massFF.flow.massFF == (device.state_out.flow.massFF * device.state_out.h - sum(state.flow.massFF * state.h for state in device.states_in if state is not state_no_flow_massFF)) / state_no_flow_massFF.h

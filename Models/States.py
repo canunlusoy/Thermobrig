@@ -6,7 +6,8 @@ from typing import Union, Dict, List
 
 from Utilities.Numeric import isNumeric, isWithin
 
-@dataclass
+
+@dataclass(unsafe_hash=True)
 class StatePure:
     P: float = float('nan')
     T: float = float('nan')

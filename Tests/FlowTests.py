@@ -96,7 +96,7 @@ class TestFlows(unittest.TestCase):
         flow_a.massFR = 42
         flow_a.massFF = 1
         flow_a.items = [ofwh := OpenFWHeater(),
-                        state_7 := StatePure(),
+                        state_7 := StatePure(x=0),
                         Pump(),
                         state_8 := StatePure(P=15000),
                         heatExchanger := HeatExchanger(),
@@ -141,6 +141,9 @@ class TestFlows(unittest.TestCase):
                        flow_b,
                        flow_c,
                        flow_d]
+
+        for flow in cycle.flows:
+            flow._calculate_h_forIncompressibles = True
 
         cycle.solve()
 
