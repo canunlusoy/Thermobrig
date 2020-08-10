@@ -2,7 +2,7 @@
 from typing import Dict, List
 
 from Models.States import StatePure
-from Methods.ThprOps import get_state_out_actual
+from Methods.ThprOps import apply_isentropicEfficiency
 
 from Utilities.Numeric import isNumeric, isWithin
 from Utilities.PrgUtilities import twoList
@@ -158,7 +158,7 @@ class HeatDevice(Device):
     def infer_fixed_exitT(self):
         """Sets or verifies temperatures of *outlet states* *of all lines* to be equal."""
         state_out_withNumericT = None
-
+        # Find a numeric state_out temperature - if none exist, the value will be None
         for line_endStates in self.lines:
             if line_endStates[1].hasDefined('T'):
                 state_out_withNumericT = line_endStates[1]
@@ -166,7 +166,6 @@ class HeatDevice(Device):
 
         if state_out_withNumericT is not None:
             self.set_or_verify({'T_exit_fixed': state_out_withNumericT.T})
-
             for line_endStates in self.lines:
                 try:
                     line_endStates[1].set_or_verify({'T': self.T_exit_fixed})

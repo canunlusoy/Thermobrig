@@ -21,3 +21,8 @@ class DataVerificationError(Exception):
         message = 'Initial value of {0} compared with {1} for verification. Two values are not within acceptable proximity. ' \
                   'The compared value is obtained using a different method / source, and is expected to match the already available value.'.format(availableValue, alternateValue)
         super(DataVerificationError, self).__init__(message)
+
+
+class DataConflictError(Exception):
+    def __init__(self):
+        super(DataConflictError, self).__init__()

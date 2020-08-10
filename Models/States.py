@@ -102,7 +102,7 @@ class StatePure:
                 else:
                     # property has a value defined
                     if not isWithin(getattr(self, propertyName), 3, '%', referenceValue):
-                        raise
+                        raise AssertionError
 
     def set(self, setDict: Dict):
         """Sets values of the properties to the values provided in the dictionary."""

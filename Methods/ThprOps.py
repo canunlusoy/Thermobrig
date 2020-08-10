@@ -467,7 +467,8 @@ def define_StateIGas(state: StateIGas, fluid: 'IdealGas'):
     return state
 
 
-def get_state_out_actual(state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, fluid: 'Fluid'):
+def apply_isentropicEfficiency(state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, fluid: 'Fluid'):
+    """Returns a new state_out based on the provided one, with all fields filled out based on the isentropic efficiency of the process between the state_in and state_out."""
 
     assert state_out_ideal.hasDefined('P')
     state_out_ideal.set_or_verify({'s': state_in.s})
