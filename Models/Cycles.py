@@ -6,7 +6,7 @@ from Models.Flows import Flow
 from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger
 from Models.States import StatePure
 from Utilities.Numeric import isNumeric
-from Utilities.PrgUtilities import LinearEquation
+from Utilities.PrgUtilities import LinearEquation, setattr_fromAddress
 
 class Cycle:
 
@@ -26,6 +26,23 @@ class Cycle:
         if not all(flow.isFullyDefined() for flow in self.flows):
             for device in intersections:
                 self._solveIntersection(device)
+
+        for flow in self.flows:
+            flow.solve()
+
+        updatedUnknowns = []
+        solvedEquations = []
+        for equation in self._equations:
+            equation.update()
+            if equation.isSolvable():
+                solution = equation.solve()
+                unknownAddress = list(solution.keys())[0]
+                setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+                updatedUnknowns.append(unknownAddress)
+                solvedEquations.append(equation)
+
+        for equation in solvedEquations:
+            self._equations.remove(equation)
 
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """

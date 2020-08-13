@@ -46,10 +46,6 @@ class LinearEquation:
 
     def __init__(self, LHS: List, RHS: float):
 
-        # for state_in, state_out in device.lines:
-        #     equation_LHSterms.append( ( (state_in, 'flow.massFF'), (state_in, 'h') ) )
-        #     equation_LHSterms.append( ( -1, (state_in, 'flow.massFF'), (state_out, 'h') ))
-
         self.source = None
 
         self._RHS_original = RHS
@@ -98,9 +94,10 @@ class LinearEquation:
                 # term does not have an unknown, e.g. term is in form "6"
                 self.RHS -= constantFactor  # move constant term to the RHS
 
+        self._gatherUnknowns()
 
+    def _gatherUnknowns(self):
         # GATHER UNKNOWNS APPEARING MULTIPLE TIMES - merge appearances, combine coefficients
-
         unknown_termIndices_inEquation = {}
         for termIndex, term in enumerate(self.LHS):
             unknowns = term[1]
@@ -137,11 +134,18 @@ class LinearEquation:
                     self.LHS[termIndex][0] *= attribute  # multiply it with the constant factor product
                     self.LHS[termIndex][1].remove(attributeAddress)  # remove it from the unknowns list
 
+            if self.LHS[termIndex][1] == []:
+                self.RHS -= self.LHS[termIndex][0]
+                self.LHS.pop(termIndex)
+
+        self._gatherUnknowns()
+
     def get_unknowns(self):
         unknowns = []
         for [term_constantFactor, term_unknowns_attributeAddresses] in self.LHS:
-            if len(term_unknowns_attributeAddresses) == 0:
-                unknowns += term_unknowns_attributeAddresses
+            assert len(term_unknowns_attributeAddresses) > 0
+            for unknown_attributeAddress in term_unknowns_attributeAddresses:
+                unknowns.append(unknown_attributeAddress)
         return unknowns
 
     def isSolvable(self):
@@ -152,7 +156,7 @@ class LinearEquation:
     def solve(self):
         assert self.isSolvable()
         assert len(self.LHS) == 1  # all other constant terms must have been moved to the RHS
-        return {self.LHS[0][1]: self.RHS / self.LHS[0][0]}  # attributeAddress: result - divide RHS by unknown's coefficient
+        return {self.LHS[0][1][0]: self.RHS / self.LHS[0][0]}  # attributeAddress: result - divide RHS by unknown's coefficient
 
     def __str__(self):
         termStrings = []
@@ -171,31 +175,14 @@ class LinearEquation:
         termStrings = str.join(' + ', termStrings)
         return termStrings + ' = ' + str(self.RHS)
 
+    def get_asDict(self):
+        dictRepresentation = {}
+        for [term_constantFactor, term_unknowns] in self.LHS:
+            assert term_unknowns not in dictRepresentation, 'PrgError: Same unknowns encountered multiple times in the equation LHS, unknowns must have been gathered by now. (i.e. coefficients must have been combined as a single coefficient for the variable)'
+            dictRepresentation[tuple(term_unknowns)] = term_constantFactor
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        dictRepresentation['RHS'] = self.RHS
+        return dictRepresentation
 
 
 class System_ofLinearEquations:

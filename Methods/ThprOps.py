@@ -472,7 +472,14 @@ def apply_isentropicEfficiency(state_in: StatePure, state_out_ideal: StatePure, 
 
     assert state_out_ideal.hasDefined('P')
     state_out_ideal.set_or_verify({'s': state_in.s})
-    state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
+    try:
+        state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
+    except NeedsExtrapolationError:
+        # For pumps dealing with subcooled liquids no data may be available. w = mu*dP relation can be used to get at least the h.
+
+        # TODO - h calculation with mu*dP 
+        pass
+
     state_out_actual = StatePure(P=state_out_ideal.P)
     work_ideal = state_out_ideal.h - state_in.h
 
@@ -480,7 +487,7 @@ def apply_isentropicEfficiency(state_in: StatePure, state_out_ideal: StatePure, 
         # work provided to flow from device -> eta_s = w_ideal / w_actual
         work_actual = work_ideal / eta_isentropic
         state_out_actual.h = work_actual + state_in.h
-    else:
+    elif work_ideal < 0:
         # work extracted from flow by device -> eta_s = w_actual / w_ideal
         work_ideal = abs(work_ideal)
         work_actual = eta_isentropic * work_ideal

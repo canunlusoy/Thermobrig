@@ -131,7 +131,7 @@ class TestFlows(unittest.TestCase):
                         turbine_b,
                         state_4 := StatePure(),
                         condenser := Condenser(),
-                        state_5 := StatePure(P=5),
+                        state_5 := StatePure(P=5, x=0),
                         Pump(),
                         state_6 := StatePure(P=200),
                         ofwh]

@@ -78,7 +78,7 @@ class Flow:
 
     def solve(self):
         self._define_definableStates()
-        self._set_devices_stateReferences()
+        self._set_devices_endStateReferences()
 
         for device in self.devices:
             print('Solving device: {0}'.format(device))
@@ -92,8 +92,7 @@ class Flow:
             iterationCounter += 1
             print('Flow solution iteration #{0}'.format(iterationCounter))
             for state in undefinedStates:
-                stateIndex = self.items.index(state)
-                surroundingDevices = [self.items[stateIndex - 1], self.items[stateIndex + 1]]
+                surroundingDevices = self.get_surroundingItems(state)
                 for device in surroundingDevices:
                     if not state.isFullyDefined():  # the state may become defined in first iteration of loop
                         self._solveDevice(device)
@@ -110,7 +109,7 @@ class Flow:
             if not state.isFullyDefined() and state.isFullyDefinable():
                 state.copy_fromState(self.workingFluid.define(state))
 
-    def _set_devices_stateReferences(self):
+    def _set_devices_endStateReferences(self):
         """For each device in the items list, sets state_in as the preceding state in the items list, and sets state_out as the next state in the items list.
         If there are no states before or after the device in the items list, leaves the relevant reference empty."""
         self._check_itemsConsistency()
