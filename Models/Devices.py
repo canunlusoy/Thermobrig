@@ -60,16 +60,6 @@ class WorkDevice(Device):
             all_endStates.append(endState)
         return all_endStates
 
-    # @property
-    # def sWorkSupplied(self):
-    #     return self.state_out.h - self.state_in.h
-    #
-    # @property
-    # def sWorkExtracted(self):
-    #     return self.state_in.h - self.state_out.h
-
-
-
 
 class Compressor(WorkDevice):
     def __init__(self, eta_isentropic: float = 1):
@@ -213,13 +203,6 @@ class Boiler(HeatDevice):
 class Condenser(HeatDevice):
     def __init__(self):
         super(Condenser, self).__init__()
-
-    # def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
-    #     # overridden not to have any lines
-    #     if state_in is not None:
-    #         self.state_in = state_in
-    #     if state_out is not None:
-    #         self.state_out = state_out
 
 
 class MixingChamber(Device):

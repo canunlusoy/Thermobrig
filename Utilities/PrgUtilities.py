@@ -44,72 +44,158 @@ class twoList(UserList):
 
 class LinearEquation:
 
-    def __init__(self, equation: List):
-        # [ [(coeff1, var1), (coeff2, var2), (coeff3, var3)], const ]
+    def __init__(self, LHS: List, RHS: float):
 
-        self.variables_coefficients = {}
-        self.constant = equation[1]  # equation[1] is the RHS
+        # for state_in, state_out in device.lines:
+        #     equation_LHSterms.append( ( (state_in, 'flow.massFF'), (state_in, 'h') ) )
+        #     equation_LHSterms.append( ( -1, (state_in, 'flow.massFF'), (state_out, 'h') ))
+
         self.source = None
 
-        assert isNumeric(self.constant), 'Right hand side value (constant value) not numeric!'
+        self._RHS_original = RHS
+        self._LHS_original = LHS
 
-        for term in equation[0]:  # equation[0] is the LHS
-            # term: (coefficient * variable)
+        self.LHS = []
+        self.RHS = RHS
 
-            numeric, nonNumeric = [], []
-            for item in term:  # item is either coefficient or variable
+        self.organizeTerms_fromOriginal()
 
+    def organizeTerms_fromOriginal(self):
+        """Iterates over the LHS terms provided in the **original equation description**, replaces variables with their values if they are known, moves constants to the RHS."""
+        self.LHS = []
 
-                item_value = item
+        for term in self._LHS_original:  # each term is a tuple
+            constantFactors = []
+            unknownFactors = []
+
+            for item in term:  # items within the term are to be multiplied
 
                 if isinstance(item, tuple):
-                    assert len(item) == 2 and isinstance(item[1], str)
-                    item_value = getattr_fromAddress(item[0], item[1])
+                    # item is an object.attribute address, in form (object, 'attribute')
+                    assert isinstance(item[1], str)
 
-                if isNumeric(item_value):
-                    numeric.append(item_value)
-                else:
-                    nonNumeric.append(item)
+                    attribute = getattr_fromAddress(*item)
+                    if isNumeric(attribute):
+                        # If the object.attribute has a value, add it to constant factors
+                        constantFactors.append(attribute)
+                    else:
+                        # If the object.attribute does not have a value, it is an unknownFactors
+                        unknownFactors.append(item)
 
-            if len(numeric) == 1 and len(nonNumeric) == 1:
-                # if there is a numeric and a non-numeric item in the term, arranging them correctly would make a difference.
-                coefficient = numeric[0]
-                variable = nonNumeric[0]
-            elif len(numeric) == 2:
-                (coefficient, variable) = numeric
+                elif any(isinstance(item, _type) for _type in [float, int]):
+                    # item is a number, i.e. a coefficient
+                    assert isNumeric(item)
+                    constantFactors.append(item)
+
+            constantFactor = 1
+            for factor in constantFactors:
+                constantFactor *= factor
+
+            if unknownFactors != []:
+                # term has an unknown, e.g. term is in form of "6*x"
+                self.LHS.append([constantFactor, unknownFactors])
             else:
-                # if not, doesn't make a difference
-                (coefficient, variable) = term
+                # term does not have an unknown, e.g. term is in form "6"
+                self.RHS -= constantFactor  # move constant term to the RHS
 
-            if len(numeric) == 2:
-                # if a (coefficient * variable) term on the LHS is numeric, i.e. the variable value is known, the term is a constant, move it to RHS
-                self.constant -= (coefficient * variable)
+
+        # GATHER UNKNOWNS APPEARING MULTIPLE TIMES - merge appearances, combine coefficients
+
+        unknown_termIndices_inEquation = {}
+        for termIndex, term in enumerate(self.LHS):
+            unknowns = term[1]
+            unknowns_key = tuple(unknowns)
+            if unknowns_key not in unknown_termIndices_inEquation:
+                unknown_termIndices_inEquation[unknowns_key] = [termIndex]
             else:
-                self.variables_coefficients.update({variable: coefficient})
+                unknown_termIndices_inEquation[unknowns_key].append(termIndex)
 
-    @property
-    def variables(self):
-        return list(self.variables_coefficients.keys())
+        for unknowns_key, termIndices_inEquation in unknown_termIndices_inEquation.items():
+            if len(termIndices_inEquation) > 1:
+                # unknown(s) appears multiple times in equation LHS, e.g. 6*x + 2*x + -3*x = 0 or e.g. 5*x*y + -2*x*y = 0
 
-    @property
-    def coefficients(self):
-        return list(self.variables_coefficients.values())
+                # This unknown initially appears at term with index termIndices_inEquation[0] on the LHS of equation
+                unknown_otherAppearances = [self.LHS[position] for position in termIndices_inEquation[1:]]
+                unknown_coefficients_inOtherAppearances = [term[0] for term in unknown_otherAppearances]
+
+                # Modify coefficient of initial appearance - move coefficients from other appearances
+                for unknownCoefficient in unknown_coefficients_inOtherAppearances:
+                    self.LHS[termIndices_inEquation[0]][0] += unknownCoefficient
+
+                for termIndex in termIndices_inEquation[1:]:
+                    self.LHS.pop(termIndex)
+
+    def update(self):
+        """Iterates over the unknown items in each term, checks if they have become numeric, i.e. have a value now whereas they previously didn't. If so, updates the constant factor
+        by multiplying it with the newly determined value and removes it from the unknowns."""
+
+        for termIndex, [term_constantFactor, term_unknowns_attributeAddresses] in enumerate(self.LHS):
+            for attributeAddress in term_unknowns_attributeAddresses:
+                attribute = getattr_fromAddress(*attributeAddress)
+                if isNumeric(attribute):
+                    # object.attribute which had previously been identified as unknown now has a value, add it to the constant factor product and remove from the unknowns
+                    self.LHS[termIndex][0] *= attribute  # multiply it with the constant factor product
+                    self.LHS[termIndex][1].remove(attributeAddress)  # remove it from the unknowns list
+
+    def get_unknowns(self):
+        unknowns = []
+        for [term_constantFactor, term_unknowns_attributeAddresses] in self.LHS:
+            if len(term_unknowns_attributeAddresses) == 0:
+                unknowns += term_unknowns_attributeAddresses
+        return unknowns
 
     def isSolvable(self):
-        """If an equation is solvable by itself, there should be one unknown."""
-        # There is one unknown, and its coefficient is also known
-        return len(self.variables) == 1 and all(isNumeric(coefficient) for coefficient in self.coefficients)
+        if number_ofUnknowns := len(self.get_unknowns()) == 1:
+            return True
+        return False
 
-    def solve(self) -> List:
-        """Solves the single variable linear equation and returns the value of the variable. Returns a list of [variable, solution], but does not readily set the variable's value."""
+    def solve(self):
         assert self.isSolvable()
-        return [self.variables[0], self.constant / list(self.variables_coefficients.values())[0]]
+        assert len(self.LHS) == 1  # all other constant terms must have been moved to the RHS
+        return {self.LHS[0][1]: self.RHS / self.LHS[0][0]}  # attributeAddress: result - divide RHS by unknown's coefficient
 
-    def solve_andSet(self, returnSolution: bool = False):
-        """Solves the single variable linear equation and sets the value of the variable to the solution."""
-        solution = [variableAddress, value] = self.solve()
-        setattr_fromAddress(variableAddress[0], variableAddress[1], solution)
-        return solution
+    def __str__(self):
+        termStrings = []
+        for term in self.LHS:
+            coefficient = term[0]
+            unknownList = term[1]
+
+            termString = str(coefficient) + ' * '
+            unknownStrings = []
+            for unknown in unknownList:
+                unknownString = unknown[0].__class__.__name__ + '@' + str(id(unknown[0])) + '.' + unknown[1]
+                unknownStrings.append(unknownString)
+            termString += str.join(' * ', unknownStrings)
+            termStrings.append(termString)
+
+        termStrings = str.join(' + ', termStrings)
+        return termStrings + ' = ' + str(self.RHS)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class System_ofLinearEquations:

@@ -20,17 +20,12 @@ class Cycle:
         self._add_flowReferences_toStates()
         intersections = self._get_intersections()
 
-        iterationCounter = 0
-        while iterationCounter < 5:
+        for flow in self.flows:
+            flow.solve()
 
-            for flow in self.flows:
-                flow.solve()
-
-            if not all(flow.isFullyDefined() for flow in self.flows):
-                for device in intersections:
-                    self._solveIntersection(device)
-
-            iterationCounter += 1
+        if not all(flow.isFullyDefined() for flow in self.flows):
+            for device in intersections:
+                self._solveIntersection(device)
 
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
@@ -81,9 +76,16 @@ class Cycle:
         # m1h11 + m2h21 + m3h31 = m1h12 + m2h22 + m3h32
 
         # m1(h1i - h1o) + m2(h2i - h2o) + m3(h3i - h3o) = 0
-        heatBalance = LinearEquation([ [ ( (state_in, 'flow.massFF'), state_in.h - state_out.h) for state_in, state_out in device.lines], 0 ])
+        # heatBalance = LinearEquation([ [ ( (state_in, 'flow.massFF'), state_in.h - state_out.h) for state_in, state_out in device.lines], 0 ])
+
+        heatBalance_LHS = []
+        for state_in, state_out in device.lines:
+            heatBalance_LHS.append( ((state_in.flow, 'massFF'), (state_in, 'h')) )
+            heatBalance_LHS.append( ((-1), (state_in.flow, 'massFF'), (state_out, 'h')) )
+        heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
+
         if heatBalance.isSolvable():
-            heatBalance.solve_andSet()
+            result = heatBalance.solve()
         else:
             self._equations.append(heatBalance)
             heatBalance.source = device
@@ -101,17 +103,25 @@ class Cycle:
             for endState in [state for state in device.endStates if state is not sampleState_withPressure]:
                 endState.set_or_verify({'P': sampleState_withPressure.P})
 
-        # m1h1 + m2h2 + m3h3 = m4h4
+        # Construct the equations
 
         # m1 + m2 + m3 - m4 = 0
-        massBalance = LinearEquation([[(1, (state, 'flow.massFF') ) for state in device.states_in] + [(-1 , (device.state_out,'flow.massFF') )], 0])
+        massBalance_LHS = []
+        for state_in in device.states_in:
+            massBalance_LHS.append( (1, (state_in.flow, 'massFF')) )
+        massBalance_LHS.append( (-1, (device.state_out.flow, 'massFF')) )
+        massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
 
         # m1h1 + m2h2 + m3h3 - m4h4 = 0
-        heatBalance = LinearEquation([[(state.flow.massFF, state.h) for state in device.states_in] + [(device.state_out.flow.massFF, device.state_out.h)], 0])
+        heatBalance_LHS = []
+        for state_in in device.states_in:
+            heatBalance_LHS.append( ((state_in.flow, 'massFF'), (state_in, 'h')) )
+        heatBalance_LHS.append( ((device.state_out.flow, 'massFF'), (device.state_out, 'h')) )
+        heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
 
         for equation in [massBalance, heatBalance]:
             if equation.isSolvable():
-                equation.solve_andSet()
+                result = equation.solve()
             else:
                 self._equations.append(equation)
                 equation.source = device
