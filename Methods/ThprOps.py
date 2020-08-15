@@ -6,6 +6,7 @@ from time import time
 
 from Utilities.Exceptions import FeatureNotAvailableError, NoSaturatedStateError, NeedsExtrapolationError
 from Utilities.Numeric import isNumeric, interpolate_1D, isApproximatelyEqual, get_rangeEndpoints, isWithin, get_surroundingValues, to_Kelvin, to_deg_C
+from Utilities.PrgUtilities import LinearEquation
 from Models.States import StatePure, StateIGas
 
 
@@ -476,12 +477,13 @@ def apply_isentropicEfficiency(state_in: StatePure, state_out_ideal: StatePure, 
         state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
     except NeedsExtrapolationError:
         # For pumps dealing with subcooled liquids no data may be available. w = mu*dP relation can be used to get at least the h.
+        if all(state.x <= 0 for state in [state_in, state_out_ideal]):
+            apply_incompressibleWorkRelation(state_in=state_in, state_out=state_out_ideal)
 
-        # TODO - h calculation with mu*dP 
-        pass
+    assert all(state.hasDefined('h') for state in [state_in, state_out_ideal])  # state_in & state_out should have *h* defined
+    work_ideal = state_out_ideal.h - state_in.h
 
     state_out_actual = StatePure(P=state_out_ideal.P)
-    work_ideal = state_out_ideal.h - state_in.h
 
     if work_ideal >= 0:
         # work provided to flow from device -> eta_s = w_ideal / w_actual
@@ -493,6 +495,31 @@ def apply_isentropicEfficiency(state_in: StatePure, state_out_ideal: StatePure, 
         work_actual = eta_isentropic * work_ideal
         state_out_actual.h = state_in.h - work_actual
 
-    assert state_out_actual.isFullyDefinable()
-    return fluid.define(state_out_actual)
+    return fluid.defineState_ifDefinable(state_out_actual)
+
+def apply_incompressibleWorkRelation(state_in: StatePure, state_out: StatePure):
+    """Applies the steady flow **reversible** work relation for incompressible states. (h2 - h1 = mu * (P2 - P1))"""
+
+    endStates = [state_in, state_out]
+
+    # h2 - h1 = mu * (P2 - P1)
+    # mu * P2 - mu * P1 - h2 + h1 = 0
+
+    # Check if both end states are incompressible
+    assert all(state.x <= 0 for state in endStates)
+    # Incompressible -> mu constant
+    states_with_mu = [state for state in endStates if state.hasDefined('mu')]
+    if len(states_with_mu) > 0:
+        sampleState_with_mu = states_with_mu[0]
+        for state in [state for state in endStates if state is not sampleState_with_mu]:
+            state.set_or_verify({'mu': sampleState_with_mu.mu})
+
+
+    workRelation = LinearEquation(LHS=[ ( (state_out, 'mu'), (state_out, 'P') ), (-1, (state_in, 'mu'), (state_in, 'P')), (-1, (state_out, 'h')), (1, (state_in, 'h')) ], RHS=0)
+    if workRelation.isSolvable():
+        workRelation.solve_and_set()
+        return True
+    else:
+        return workRelation
+
 

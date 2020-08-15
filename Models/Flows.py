@@ -3,7 +3,7 @@ from math import exp
 from operator import itemgetter
 from typing import Union, List, Dict
 
-from Methods.ThprOps import apply_isentropicEfficiency
+from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWorkRelation
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
@@ -31,6 +31,9 @@ class Flow:
         # If flow is cyclic, items list should start with a state and end with the same state.
 
         self._calculate_h_forIncompressibles = calculate_h_forIncompressibles
+
+        self._initialSolutionComplete = False
+        self._equations = []
 
     @property
     def states(self) -> List[StatePure]:
@@ -78,25 +81,35 @@ class Flow:
 
     def solve(self):
         self._define_definableStates()
-        self._set_devices_endStateReferences()
 
-        for device in self.devices:
-            print('Solving device: {0}'.format(device))
-            self._solveDevice(device)
+        if not self._initialSolutionComplete:
+            self._set_devices_endStateReferences()
 
-        self._define_definableStates()
+            for device in self.devices:
+                print('Solving device: {0}'.format(device))
+                self._solveDevice(device)
+
+            self._define_definableStates()
 
         get_undefinedStates = lambda: [state for state in self.states if not state.isFullyDefined()]
+        undefinedStates_previousIteration = []
         iterationCounter = 0
-        while (undefinedStates := get_undefinedStates()) != [] and iterationCounter < 5:
+        while (undefinedStates := get_undefinedStates()) != undefinedStates_previousIteration:
+            # If new states became defined in the previous iteration, they may also help resolve other states.
             iterationCounter += 1
             print('Flow solution iteration #{0}'.format(iterationCounter))
+
             for state in undefinedStates:
                 surroundingDevices = self.get_surroundingItems(state)
                 for device in surroundingDevices:
                     if not state.isFullyDefined():  # the state may become defined in first iteration of loop
                         self._solveDevice(device)
                 self._defineStates_ifDefinable(state)
+
+            undefinedStates_previousIteration = undefinedStates
+
+        if not self._initialSolutionComplete:
+            self._initialSolutionComplete = True
 
     def _define_definableStates(self) -> None:
         """Runs the appropriate defFcn (function to fully define the state properties) for states which can be fully defined, i.e. has 2+ independent intensive properties defined."""
@@ -106,8 +119,7 @@ class Flow:
         if isinstance(states, StatePure):
             states = [states]
         for state in states:
-            if not state.isFullyDefined() and state.isFullyDefinable():
-                state.copy_fromState(self.workingFluid.define(state))
+            self.workingFluid.defineState_ifDefinable(state)
 
     def _set_devices_endStateReferences(self):
         """For each device in the items list, sets state_in as the preceding state in the items list, and sets state_out as the next state in the items list.
@@ -144,25 +156,24 @@ class Flow:
             # Apply isentropic efficiency relations to determine outlet state
             self.solve_workDevice(device)
 
-        if isinstance(device, HeatDevice):
+        if not self._initialSolutionComplete:  # the below processes do not need to be done in each flow solution iteration, but only for the initial one
 
-            # Setting end state pressures along the same line if pressures is assumed constant along each line
-            if device._infer_constant_linePressures:
-                device.infer_constant_linePressures()
+            if isinstance(device, HeatDevice):
+                # Setting end state pressures along the same line if pressures is assumed constant along each line
+                if device._infer_constant_linePressures:
+                    device.infer_constant_linePressures()
+                # Setting up fixed exit temperature if inferring exit temperature from one exit state
+                if device._infer_fixed_exitT:
+                    device.infer_fixed_exitT()
 
-            # Setting up fixed exit temperature if inferring exit temperature from one exit state
-            if device._infer_fixed_exitT:
-                device.infer_fixed_exitT()
+            if isinstance(device, MixingChamber):
+                # Setting pressures of all in / out flows to the same value
+                if device._infer_common_mixingPressure:
+                    device.infer_common_mixingPressure()
 
-        if isinstance(device, MixingChamber):
-
-            # Setting pressures of all in / out flows to the same value
-            if device._infer_common_mixingPressure:
-                device.infer_common_mixingPressure()
-
-        if isinstance(device, Trap):
-            if device._infer_constant_enthalpy:
-                device.infer_constant_enthalpy()
+            if isinstance(device, Trap):
+                if device._infer_constant_enthalpy:
+                    device.infer_constant_enthalpy()
 
         self._defineStates_ifDefinable(endStates)
 
@@ -181,11 +192,13 @@ class Flow:
                                                                     state_out_ideal=state_out,
                                                                     eta_isentropic=device.eta_isentropic,
                                                                     fluid=self.workingFluid))
-                assert state_out.isFullyDefined()
+                # assert state_out.isFullyDefined()
 
-            if self._calculate_h_forIncompressibles and device.state_in.x <= 0 and device.state_in.hasDefined('P'):
-                # overwrite h with calculated value
-                state_out.h = device.state_in.h + device.state_in.mu * (state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
+            # if self._calculate_h_forIncompressibles and device.state_in.x <= 0 and device.state_in.hasDefined('P'):
+            #     apply_incompressibleWorkRelation(device.state_in, state_out)
+
+                # # overwrite h with calculated value
+                # state_out.h = device.state_in.h + device.state_in.mu * (state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
 
     @property
     def net_sWorkExtracted(self):

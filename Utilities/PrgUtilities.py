@@ -158,6 +158,11 @@ class LinearEquation:
         assert len(self.LHS) == 1  # all other constant terms must have been moved to the RHS
         return {self.LHS[0][1][0]: self.RHS / self.LHS[0][0]}  # attributeAddress: result - divide RHS by unknown's coefficient
 
+    def solve_and_set(self):
+        solution = self.solve()
+        unknownAddress = list(solution.keys())[0]
+        setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+
     def __str__(self):
         termStrings = []
         for term in self.LHS:
