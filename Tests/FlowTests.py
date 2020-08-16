@@ -96,17 +96,17 @@ class TestFlows(unittest.TestCase):
         flow_a.massFR = 42
         flow_a.massFF = 1
         flow_a.items = [ofwh := OpenFWHeater(),
-                        state_7 := StatePure(x=0),
+                        state_07 := StatePure(x=0),
                         Pump(),
-                        state_8 := StatePure(P=15000),
+                        state_08 := StatePure(P=15000),
                         heatExchanger := HeatExchanger(),
-                        state_9 := StatePure(T=water.define(StatePure(P=600, x=0)).T),
+                        state_09 := StatePure(T=water.define(StatePure(P=600, x=0)).T),
                         boiler := Boiler(infer_fixed_exitT=False),
-                        state_1 := StatePure(P=15000, T=600),
+                        state_01 := StatePure(P=15000, T=600),
                         turbine_a := Turbine(),
-                        state_2 := StatePure(P=1000),
+                        state_02 := StatePure(P=1000),
                         boiler,
-                        state_3 := StatePure(P=1000, T=500),
+                        state_03 := StatePure(P=1000, T=500),
                         turbine_b := Turbine(),
                         state_10 := StatePure(P=600)]
 
@@ -129,11 +129,11 @@ class TestFlows(unittest.TestCase):
                         turbine_b,
                         state_13,
                         turbine_b,
-                        state_4 := StatePure(),
+                        state_04 := StatePure(),
                         condenser := Condenser(),
-                        state_5 := StatePure(P=5, x=0),
+                        state_05 := StatePure(P=5, x=0),
                         Pump(),
-                        state_6 := StatePure(P=200),
+                        state_06 := StatePure(P=200),
                         ofwh]
 
         cycle = Cycle()

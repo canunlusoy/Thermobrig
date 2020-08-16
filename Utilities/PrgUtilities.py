@@ -119,6 +119,7 @@ class LinearEquation:
                 for unknownCoefficient in unknown_coefficients_inOtherAppearances:
                     self.LHS[termIndices_inEquation[0]][0] += unknownCoefficient
 
+                # Remove the subsequent appearances of the unknown since their coefficients have been moved to the initial appearance
                 for termIndex in termIndices_inEquation[1:]:
                     self.LHS.pop(termIndex)
 
@@ -200,19 +201,21 @@ class System_ofLinearEquations:
         sampleEquation = equations[0]
         # Check if (# of equations) == (# of variables in sampleEquation)
         # Check if all equations have the same number of variables
-        if len(equations) == len(sampleEquation.variables) and all(len(equation.variables) == sampleEquation.variables for equation in equations if equation is not sampleEquation):
+        if len(equations) == len(sampleEquation.get_unknowns()) and (all(equation.get_unknowns() == sampleEquation.get_unknowns() for equation in equations if equation is not sampleEquation)):
             return True
         return False
 
     def solve(self):
-        variables = self.equations[0].variables
+        unknowns = self.equations[0].get_unknowns()
 
         coefficients, constants = [], []
+
         for equation in self.equations:
-            coefficients.append([equation.variables_coefficients[variable] for variable in variables])
-            constants.append(equation.constant)
+            equation_dict = equation.get_asDict()
+            coefficients.append([equation_dict[tuple(unknown)] for unknown in unknowns])
+            constants.append(equation_dict['RHS'])
 
         solution = np.linalg.solve(a=np.array(coefficients), b=np.array(constants))
-        return {variable: solution[variableIndex] for variableIndex, variable in enumerate(variables)}
+        return {variable: solution[variableIndex] for variableIndex, variable in enumerate(unknowns)}
 
 

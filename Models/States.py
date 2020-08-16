@@ -129,3 +129,76 @@ class StateIGas(StatePure):
     _properties_mixture = ['x']
     _properties_all = _properties_regular + _properties_mixture
 
+
+class FlowPoint(StatePure):
+
+    def __init__(self, baseState: StatePure, flow: 'Flow'):
+        """Class for flow-aware states. Normally, states are unaware / independent of flows and are simply data containers for thermodynamic information. Flow points represent **points in flows**,
+        and hence allow access to flow data through the reference to the flow, and contain the state information inherently, in the same way as a state object."""
+
+        self.baseState = baseState
+        self.flow = flow
+
+    def get_P(self):
+        return getattr(self.baseState, 'P')
+
+    def set_P(self, value):
+        setattr(self.baseState, 'P', value)
+
+    P = property(fget=get_P, fset=set_P)
+
+    def get_T(self):
+        return getattr(self.baseState, 'T')
+
+    def set_T(self, value):
+        setattr(self.baseState, 'T', value)
+
+    T = property(fget=get_T, fset=set_T)
+
+    def get_h(self):
+        return getattr(self.baseState, 'h')
+
+    def set_h(self, value):
+        setattr(self.baseState, 'h', value)
+
+    h = property(fget=get_h, fset=set_h)
+
+    def get_u(self):
+        return getattr(self.baseState, 'u')
+
+    def set_u(self, value):
+        setattr(self.baseState, 'u', value)
+
+    u = property(fget=get_u, fset=set_u)
+
+    def get_mu(self):
+        return getattr(self.baseState, 'mu')
+
+    def set_mu(self, value):
+        setattr(self.baseState, 'mu', value)
+
+    mu = property(fget=get_mu, fset=set_mu)
+
+    def get_s(self):
+        return getattr(self.baseState, 's')
+
+    def set_s(self, value):
+        setattr(self.baseState, 's', value)
+
+    s = property(fget=get_s, fset=set_s)
+
+    def get_x(self):
+        return getattr(self.baseState, 'x')
+
+    def set_x(self, value):
+        setattr(self.baseState, 'x', value)
+
+    x = property(fget=get_x, fset=set_x)
+
+    def get_s0(self):
+        return getattr(self.baseState, 's0')
+
+    def set_s0(self, value):
+        setattr(self.baseState, 's0', value)
+
+    s0 = property(fget=get_s0, fset=set_s0)

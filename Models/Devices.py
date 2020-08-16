@@ -119,6 +119,7 @@ class HeatDevice(Device):
         # assumes each line passing through the boiler reaches the same exit temperature. Once an exit temperature is available, sets T_exit_fixed.
 
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+
         if (line_endStates := twoList([state_in, state_out])) not in self.lines:
             self.lines.append(line_endStates)
             # Set state_in, state_out as the currently set pair - but ideally, when making use of endStates of HeatDevices, methods must make provisions for lines

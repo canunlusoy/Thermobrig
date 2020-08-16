@@ -4,9 +4,9 @@ from itertools import combinations
 
 from Models.Flows import Flow
 from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger
-from Models.States import StatePure
+from Models.States import StatePure, FlowPoint
 from Utilities.Numeric import isNumeric
-from Utilities.PrgUtilities import LinearEquation, setattr_fromAddress
+from Utilities.PrgUtilities import LinearEquation, System_ofLinearEquations, setattr_fromAddress
 
 class Cycle:
 
@@ -17,7 +17,7 @@ class Cycle:
 
     def solve(self):
 
-        self._add_flowReferences_toStates()
+        self._convertStates_toFlowPoints()
         intersections = self._get_intersections()
 
         for flow in self.flows:
@@ -44,6 +44,14 @@ class Cycle:
         for equation in solvedEquations:
             self._equations.remove(equation)
 
+        for equation in self._equations:
+            equation.update()
+
+        for equation1, equation2 in combinations(self._equations, 2):
+            if System_ofLinearEquations.isSolvable([equation1, equation2]):
+                system = System_ofLinearEquations([equation1, equation2])
+                system.solve()
+
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
         # Not a big fan of doing this - states are a lower level entity than flows and should not have access to the higher level entity which contains it.
@@ -51,6 +59,13 @@ class Cycle:
         for flow in self.flows:
             for state in flow.states:
                 setattr(state, 'flow', flow)
+
+    def _convertStates_toFlowPoints(self):
+        """Iterates over all flows and changes states with FlowPoints based on them."""
+        for flow in self.flows:
+            for state in flow.states:
+                # Replace state with flow point - find the position of the state in the items list, change item at index (i.e. state)
+                flow.items[flow.items.index(state)] = FlowPoint(baseState=state, flow=flow)
 
     def _get_intersections(self):
         """Iterates through flows' items to find intersections. Specifically, checks for shared endpoints and devices."""
