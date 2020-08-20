@@ -2,9 +2,9 @@ import numpy as np
 
 from collections import UserList
 from typing import List, Iterable, Callable
+from copy import deepcopy
 
 from Utilities.Numeric import isNumeric
-
 
 def findItem(items: Iterable, condition):
     """Returns the first item in the list of states satisfying the condition."""
@@ -66,6 +66,9 @@ class LinearEquation:
 
             for item in term:  # items within the term are to be multiplied
 
+                if item == (-1):
+                    print(5)
+
                 if isinstance(item, tuple):
                     # item is an object.attribute address, in form (object, 'attribute')
                     assert isinstance(item[1], str)
@@ -75,7 +78,8 @@ class LinearEquation:
                         # If the object.attribute has a value, add it to constant factors
                         constantFactors.append(attribute)
                     else:
-                        # If the object.attribute does not have a value, it is an unknownFactors
+                        # If the object.attribute does not have a value, it is an unknownFactor
+                        assert item not in unknownFactors, 'LinearEquationError: Same unknown appears twice in one term, i.e. a higher power of the unknown encountered - not a linear equation!'
                         unknownFactors.append(item)
 
                 elif any(isinstance(item, _type) for _type in [float, int]):
@@ -87,7 +91,7 @@ class LinearEquation:
             for factor in constantFactors:
                 constantFactor *= factor
 
-            if unknownFactors != []:
+            if len(unknownFactors) != 0:
                 # term has an unknown, e.g. term is in form of "6*x"
                 self.LHS.append([constantFactor, unknownFactors])
             else:
@@ -128,6 +132,9 @@ class LinearEquation:
         by multiplying it with the newly determined value and removes it from the unknowns."""
 
         for termIndex, [term_constantFactor, term_unknowns_attributeAddresses] in enumerate(self.LHS):
+
+            originalterm = deepcopy(self.LHS[termIndex])
+
             for attributeAddress in term_unknowns_attributeAddresses:
                 attribute = getattr_fromAddress(*attributeAddress)
                 if isNumeric(attribute):
@@ -136,6 +143,7 @@ class LinearEquation:
                     self.LHS[termIndex][1].remove(attributeAddress)  # remove it from the unknowns list
 
             if self.LHS[termIndex][1] == []:
+                # if term has no unknowns, it is a constant, move to RHS
                 self.RHS -= self.LHS[termIndex][0]
                 self.LHS.pop(termIndex)
 
@@ -145,8 +153,7 @@ class LinearEquation:
         unknowns = []
         for [term_constantFactor, term_unknowns_attributeAddresses] in self.LHS:
             assert len(term_unknowns_attributeAddresses) > 0
-            for unknown_attributeAddress in term_unknowns_attributeAddresses:
-                unknowns.append(unknown_attributeAddress)
+            unknowns.append(term_unknowns_attributeAddresses)
         return unknowns
 
     def isSolvable(self):
@@ -155,6 +162,10 @@ class LinearEquation:
         return False
 
     def solve(self):
+        print('\n')
+        print(self._LHS_original)
+        print(self.LHS)
+
         assert self.isSolvable()
         assert len(self.LHS) == 1  # all other constant terms must have been moved to the RHS
         return {self.LHS[0][1][0]: self.RHS / self.LHS[0][0]}  # attributeAddress: result - divide RHS by unknown's coefficient
@@ -168,11 +179,11 @@ class LinearEquation:
         termStrings = []
         for term in self.LHS:
             coefficient = term[0]
-            unknownList = term[1]
+            unknownSet = term[1]
 
             termString = str(coefficient) + ' * '
             unknownStrings = []
-            for unknown in unknownList:
+            for unknown in unknownSet:
                 unknownString = unknown[0].__class__.__name__ + '@' + str(id(unknown[0])) + '.' + unknown[1]
                 unknownStrings.append(unknownString)
             termString += str.join(' * ', unknownStrings)
@@ -183,9 +194,10 @@ class LinearEquation:
 
     def get_asDict(self):
         dictRepresentation = {}
-        for [term_constantFactor, term_unknowns] in self.LHS:
-            assert term_unknowns not in dictRepresentation, 'PrgError: Same unknowns encountered multiple times in the equation LHS, unknowns must have been gathered by now. (i.e. coefficients must have been combined as a single coefficient for the variable)'
-            dictRepresentation[tuple(term_unknowns)] = term_constantFactor
+        for [term_constantFactor, term_unknowns_attributeAddresses] in self.LHS:
+            term_unknowns_attributeAddresses_key = tuple(term_unknowns_attributeAddresses)
+            assert term_unknowns_attributeAddresses_key not in dictRepresentation, 'PrgError: Same unknowns encountered multiple times in the equation LHS, unknowns must have been gathered by now. (i.e. coefficients must have been combined as a single coefficient for the variable)'
+            dictRepresentation[term_unknowns_attributeAddresses_key] = term_constantFactor
 
         dictRepresentation['RHS'] = self.RHS
         return dictRepresentation
@@ -201,21 +213,35 @@ class System_ofLinearEquations:
         sampleEquation = equations[0]
         # Check if (# of equations) == (# of variables in sampleEquation)
         # Check if all equations have the same number of variables
-        if len(equations) == len(sampleEquation.get_unknowns()) and (all(equation.get_unknowns() == sampleEquation.get_unknowns() for equation in equations if equation is not sampleEquation)):
-            return True
+        if len(equations) == len(sampleEquation.get_unknowns()):
+            if all(equation.get_unknowns() == sampleEquation.get_unknowns() for equation in equations if equation is not sampleEquation):
+                runningBoolean = True
+                # Check if each unknown term has 1 unknown only, i.e. not a product of multiple unknowns, e.g. not 6*x*y but only 6*x.
+                for equation in equations:
+                    for termUnknowns in equation.get_unknowns():  # get_unknowns() returns the list of multiplied unknowns in each term.
+                        if len(termUnknowns) != 1:
+                            runningBoolean = False
+                return runningBoolean
         return False
 
     def solve(self):
-        unknowns = self.equations[0].get_unknowns()
 
+        unknowns = self.equations[0].get_unknowns()
         coefficients, constants = [], []
 
         for equation in self.equations:
+            print('\n')
+            print(equation._LHS_original)
+            print(equation)
+
             equation_dict = equation.get_asDict()
             coefficients.append([equation_dict[tuple(unknown)] for unknown in unknowns])
             constants.append(equation_dict['RHS'])
 
         solution = np.linalg.solve(a=np.array(coefficients), b=np.array(constants))
-        return {variable: solution[variableIndex] for variableIndex, variable in enumerate(unknowns)}
+        return {unknown[0]: float(solution[unknownIndex]) for unknownIndex, unknown in enumerate(unknowns)}  # unknown[0] since list of multiplied unknowns has only one unknown. Retrieve the unknown from the list
 
-
+    def solve_and_set(self):
+        solution = self.solve()
+        for attributeAddress in solution:
+            setattr_fromAddress(object=attributeAddress[0], address=attributeAddress[1], value=solution[attributeAddress])

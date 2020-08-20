@@ -50,7 +50,7 @@ class Cycle:
         for equation1, equation2 in combinations(self._equations, 2):
             if System_ofLinearEquations.isSolvable([equation1, equation2]):
                 system = System_ofLinearEquations([equation1, equation2])
-                system.solve()
+                system.solve_and_set()
 
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
@@ -113,11 +113,11 @@ class Cycle:
         heatBalance_LHS = []
         for state_in, state_out in device.lines:
             heatBalance_LHS.append( ((state_in.flow, 'massFF'), (state_in, 'h')) )
-            heatBalance_LHS.append( ((-1), (state_in.flow, 'massFF'), (state_out, 'h')) )
+            heatBalance_LHS.append( ((-1), (state_out.flow, 'massFF'), (state_out, 'h')) )
         heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
 
         if heatBalance.isSolvable():
-            result = heatBalance.solve()
+            heatBalance.solve_and_set()
         else:
             self._equations.append(heatBalance)
             heatBalance.source = device
@@ -148,12 +148,12 @@ class Cycle:
         heatBalance_LHS = []
         for state_in in device.states_in:
             heatBalance_LHS.append( ((state_in.flow, 'massFF'), (state_in, 'h')) )
-        heatBalance_LHS.append( ((device.state_out.flow, 'massFF'), (device.state_out, 'h')) )
+        heatBalance_LHS.append( (-1, (device.state_out.flow, 'massFF'), (device.state_out, 'h')) )
         heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
 
         for equation in [massBalance, heatBalance]:
             if equation.isSolvable():
-                result = equation.solve()
+                equation.solve_and_set()
             else:
                 self._equations.append(equation)
                 equation.source = device
