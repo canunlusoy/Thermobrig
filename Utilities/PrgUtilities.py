@@ -66,9 +66,6 @@ class LinearEquation:
 
             for item in term:  # items within the term are to be multiplied
 
-                if item == (-1):
-                    print(5)
-
                 if isinstance(item, tuple):
                     # item is an object.attribute address, in form (object, 'attribute')
                     assert isinstance(item[1], str)
@@ -111,12 +108,13 @@ class LinearEquation:
             else:
                 unknown_termIndices_inEquation[unknowns_key].append(termIndex)
 
+        terms_toPop = []
         for unknowns_key, termIndices_inEquation in unknown_termIndices_inEquation.items():
             if len(termIndices_inEquation) > 1:
                 # unknown(s) appears multiple times in equation LHS, e.g. 6*x + 2*x + -3*x = 0 or e.g. 5*x*y + -2*x*y = 0
 
                 # This unknown initially appears at term with index termIndices_inEquation[0] on the LHS of equation
-                unknown_otherAppearances = [self.LHS[position] for position in termIndices_inEquation[1:]]
+                unknown_otherAppearances = [self.LHS[position] for position in termIndices_inEquation[1:]]  # (*)
                 unknown_coefficients_inOtherAppearances = [term[0] for term in unknown_otherAppearances]
 
                 # Modify coefficient of initial appearance - move coefficients from other appearances
@@ -125,7 +123,11 @@ class LinearEquation:
 
                 # Remove the subsequent appearances of the unknown since their coefficients have been moved to the initial appearance
                 for termIndex in termIndices_inEquation[1:]:
-                    self.LHS.pop(termIndex)
+                    terms_toPop.append(termIndex)
+
+        # removing terms in the end b/c if removed in the for loop, line with (*) breaks - list length changed
+        for termIndex in reversed(sorted(terms_toPop)):  # reversed, sorted list - to make sure indices remain valid as items are removed
+            self.LHS.pop(termIndex)
 
     def update(self):
         """Iterates over the unknown items in each term, checks if they have become numeric, i.e. have a value now whereas they previously didn't. If so, updates the constant factor
@@ -162,10 +164,6 @@ class LinearEquation:
         return False
 
     def solve(self):
-        print('\n')
-        print(self._LHS_original)
-        print(self.LHS)
-
         assert self.isSolvable()
         assert len(self.LHS) == 1  # all other constant terms must have been moved to the RHS
         return {self.LHS[0][1][0]: self.RHS / self.LHS[0][0]}  # attributeAddress: result - divide RHS by unknown's coefficient

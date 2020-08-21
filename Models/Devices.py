@@ -93,8 +93,9 @@ class Turbine(WorkDevice):
                     self.states_out.append(current_state_in)
                     self.state_in = proposed_state_in
                 else:
-                    if proposed_state_in not in self.states_out:
-                        self.states_out.append(proposed_state_in)
+                    if proposed_state_in is not current_state_in:
+                        if proposed_state_in not in self.states_out:
+                            self.states_out.append(proposed_state_in)
             else:
                 self.state_in = proposed_state_in
 
@@ -220,7 +221,8 @@ class MixingChamber(Device):
         """Returns all end states, i.e. the single outlet state and the 1+ inlet state."""
         all_endStates = [self.state_out]
         for endState in self.states_in:
-            all_endStates.append(endState)
+            if isinstance(endState, StatePure):
+                all_endStates.append(endState)
         return all_endStates
 
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):

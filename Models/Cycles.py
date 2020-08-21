@@ -3,7 +3,7 @@ from typing import List, Dict, Set
 from itertools import combinations
 
 from Models.Flows import Flow
-from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger
+from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger, Turbine
 from Models.States import StatePure, FlowPoint
 from Utilities.Numeric import isNumeric
 from Utilities.PrgUtilities import LinearEquation, System_ofLinearEquations, setattr_fromAddress
@@ -15,14 +15,24 @@ class Cycle:
 
         self._equations: List[LinearEquation] = []
 
+
+    def updateEquations(self):
+        for equation in self._equations:
+            if any(unknown in equation.get_unknowns() for unknown in self._updatedUnknowns):
+                equation.update()
+            self._updatedUnknowns = []
+
     def solve(self):
 
         self._convertStates_toFlowPoints()
-        intersections = self._get_intersections()
+
+        for flow in self.flows:
+            flow._set_devices_endStateReferences()
 
         for flow in self.flows:
             flow.solve()
 
+        intersections = self._get_intersections()
         if not all(flow.isFullyDefined() for flow in self.flows):
             for device in intersections:
                 self._solveIntersection(device)
@@ -30,7 +40,10 @@ class Cycle:
         for flow in self.flows:
             flow.solve()
 
-        updatedUnknowns = []
+        self._updatedUnknowns = []
+
+
+
         solvedEquations = []
         for equation in self._equations:
             equation.update()
@@ -38,19 +51,45 @@ class Cycle:
                 solution = equation.solve()
                 unknownAddress = list(solution.keys())[0]
                 setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
-                updatedUnknowns.append(unknownAddress)
+                self._updatedUnknowns.append(unknownAddress)
                 solvedEquations.append(equation)
 
         for equation in solvedEquations:
             self._equations.remove(equation)
 
-        for equation in self._equations:
-            equation.update()
+        self.updateEquations()
 
         for equation1, equation2 in combinations(self._equations, 2):
             if System_ofLinearEquations.isSolvable([equation1, equation2]):
                 system = System_ofLinearEquations([equation1, equation2])
-                system.solve_and_set()
+                solution = system.solve()
+                unknownAddresses = list(solution.keys())
+                for unknownAddress in unknownAddresses:
+                    setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+                    self._updatedUnknowns.append(unknownAddress)
+                solvedEquations += [equation1, equation2]
+
+        for equation in solvedEquations:
+            self._equations.remove(equation)
+        solvedEquations = []
+
+        self.updateEquations()
+
+        for equation1, equation2, equation3 in combinations(self._equations, 3):
+            if System_ofLinearEquations.isSolvable([equation1, equation2, equation3]):
+                system = System_ofLinearEquations([equation1, equation2, equation3])
+                solution = system.solve()
+                unknownAddresses = list(solution.keys())
+                for unknownAddress in unknownAddresses:
+                    setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+                    self._updatedUnknowns.append(unknownAddress)
+                solvedEquations += [equation1, equation2, equation3]
+
+        for equation in solvedEquations:
+            self._equations.remove(equation)
+        solvedEquations = []
+
+        self.updateEquations()
 
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
@@ -102,6 +141,9 @@ class Cycle:
 
         elif isinstance(device, HeatExchanger):
             self.solve_heatExchanger(device)
+
+        elif isinstance(device, Turbine):
+            self._add_turbineMassBalance(device)
 
     def solve_heatExchanger(self, device: HeatExchanger):
         """Does a heat balance over the flows entering and exiting the heat exchanger, calculates the missing property and sets its value in the relevant object."""
@@ -158,3 +200,16 @@ class Cycle:
                 self._equations.append(equation)
                 equation.source = device
 
+    def _add_turbineMassBalance(self, device: Turbine):
+        """Creates a mass balance equation for flows entering/exiting a turbine."""
+        massBalance_LHS = []
+        massBalance_LHS.append((1, (device.state_in.flow, 'massFF')))
+        for state_out in device.states_out:
+            massBalance_LHS.append((-1, (state_out.flow, 'massFF')))
+        massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
+
+        if massBalance.isSolvable():
+            massBalance.solve_and_set()
+        else:
+            self._equations.append(massBalance)
+            massBalance.source = device

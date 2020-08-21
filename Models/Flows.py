@@ -7,10 +7,10 @@ from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWork
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
-from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor, MixingChamber, OpenFWHeater, Trap
+from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor, MixingChamber, OpenFWHeater, Trap, Turbine
 
 from Utilities.Numeric import isNumeric, isWithin
-from Utilities.PrgUtilities import twoList
+from Utilities.PrgUtilities import twoList, LinearEquation
 from Utilities.Exceptions import DataVerificationError
 
 # FLOWS include relations between states (same T / P / h / s)
@@ -33,7 +33,9 @@ class Flow:
         self._calculate_h_forIncompressibles = calculate_h_forIncompressibles
 
         self._initialSolutionComplete = False
-        self._equations = []
+
+        self._net_sWorkExtracted = float('nan')
+
 
     @property
     def states(self) -> List[StatePure]:
@@ -182,7 +184,7 @@ class Flow:
         # Find the state_out out of the device IN THIS FLOW - work devices may have multiple states_out (e.g. turbines with many extractions for reheat, regeneration).
 
         occurrences_ofDevice = [index for index, item in enumerate(self.items) if item is device]
-        states_afterDevice: List[StatePure] = [self.items[index + 1] for index in occurrences_ofDevice]  # state_afterDevice is a StatePure for sure after the check in _check_itemsConsistency
+        states_afterDevice: List[StatePure] = [self.items[index + 1] for index in occurrences_ofDevice if index + 1 < len(self.items)]  # state_afterDevice is a StatePure for sure after the check in _check_itemsConsistency
 
         for state_out in states_afterDevice:
             if device.state_in.hasDefined('s') and device.state_in.hasDefined('h') and state_out.hasDefined('P'):
@@ -200,13 +202,42 @@ class Flow:
                 # # overwrite h with calculated value
                 # state_out.h = device.state_in.h + device.state_in.mu * (state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
 
+
     @property
-    def net_sWorkExtracted(self):
-        total_sWorkExtracted = 0
+    def get_net_sWorkExtracted(self):
+        self._net_sWorkExtracted = float('nan')
+        expression_LHS = [( (-1, (self, '_net_sWorkExtracted')) )]
         for device in self.workDevices:
-            stateBefore, stateAfter = self.get_surroundingItems(device)
-            total_sWorkExtracted += stateBefore.h - stateAfter.h
-        return total_sWorkExtracted
+            try:
+                stateBefore, stateAfter = self.get_surroundingItems(device)
+            except ValueError:
+                if isinstance(device, Turbine):
+                    stateBefore = device.state_in
+                    stateAfter = self.get_surroundingItems(device)[0]
+                    if stateAfter is stateBefore:  # if flow begins with a device, device.state in is also what surroundingItems gives.
+                        continue
+            expression_LHS.append( (1, (stateBefore, 'h')) )
+            expression_LHS.append( (-1, (stateAfter, 'h')) )
+        expression = LinearEquation(LHS=expression_LHS, RHS=0)
+
+        if expression.isSolvable():
+            assert expression.get_unknowns()[0][0] == (self, '_net_sWorkExtracted')
+            return list(expression.solve().values())[0]
+        else:
+            return expression
+
+    #     total_sWorkExtracted = 0
+    #     for device in self.workDevices:
+    #         try:
+    #             stateBefore, stateAfter = self.get_surroundingItems(device)
+    #         except ValueError:
+    #             # if the flow starts from a turbine (e.g. is the flow at the end of turbine, or is a bleed flow), flow items won't list the state before the turbine, and no stateBefore will be returned
+    #             if isinstance(device, Turbine):
+    #                 stateAfter = self.get_surroundingItems(device)[0]
+    #                 stateBefore = device.state_in
+    #         print(stateBefore, stateAfter)
+    #         total_sWorkExtracted += stateBefore.h - stateAfter.h
+    #     return total_sWorkExtracted
 
     @property
     def sHeatSupplied(self):
