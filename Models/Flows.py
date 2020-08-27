@@ -24,17 +24,16 @@ class Flow:
         self.workingFluid = workingFluid
         self.massFR = massFlowRate
         self.massFF = massFlowFraction
+        self._calculate_h_forIncompressibles = calculate_h_forIncompressibles
 
 
         self.items = []
         # Items is a list of devices and states making up the flow.
         # If flow is cyclic, items list should start with a state and end with the same state.
 
-        self._calculate_h_forIncompressibles = calculate_h_forIncompressibles
+        self._equations = []
 
         self._initialSolutionComplete = False
-
-        self._net_sWorkExtracted = float('nan')
 
 
     @property
@@ -202,42 +201,34 @@ class Flow:
                 # # overwrite h with calculated value
                 # state_out.h = device.state_in.h + device.state_in.mu * (state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
 
-
-    @property
-    def get_net_sWorkExtracted(self):
+    def get_net_sWorkExtracted(self, returnExpression: bool = False):
         self._net_sWorkExtracted = float('nan')
-        expression_LHS = [( (-1, (self, '_net_sWorkExtracted')) )]
+        expression_LHS = [ (-1, (self, '_net_sWorkExtracted')) ]
         for device in self.workDevices:
-            try:
-                stateBefore, stateAfter = self.get_surroundingItems(device)
-            except ValueError:
-                if isinstance(device, Turbine):
-                    stateBefore = device.state_in
-                    stateAfter = self.get_surroundingItems(device)[0]
-                    if stateAfter is stateBefore:  # if flow begins with a device, device.state in is also what surroundingItems gives.
-                        continue
-            expression_LHS.append( (1, (stateBefore, 'h')) )
-            expression_LHS.append( (-1, (stateAfter, 'h')) )
-        expression = LinearEquation(LHS=expression_LHS, RHS=0)
+            stateBefore, stateAfter = self.get_surroundingItems(device, includeNone=True)  # returned list will have None values if there is no item in the spot before / after
+            if stateBefore is None and isinstance(device, Turbine):
+                stateBefore = device.state_in
+            if stateBefore is not None and stateAfter is not None:
+                expression_LHS += [ (1, (stateBefore, 'h')) , (-1, (stateAfter, 'h')) ]  # effectively adds (h_in - h_out) to the equation
+            else:
+                continue
+        expression = LinearEquation(LHS=expression_LHS, RHS=0)  # -1 * self._net_sWorkExtracted + state_in.h - state_out.h = 0
+        expression.source = 'Flows.get_net_sWorkExtracted'
 
         if expression.isSolvable():
             assert expression.get_unknowns()[0][0] == (self, '_net_sWorkExtracted')
-            return list(expression.solve().values())[0]
+            # Linear equation is solvable if only there is only one unknown. If there is only one unknown, it must be the self._net_sWorkExtracted since we know it is unknown for sure
+            result = list(expression.solve().values())[0]
+            return result
         else:
-            return expression
+            if returnExpression:
+                return expression.isolate( [(self, '_net_sWorkExtracted')] )
+            else:
+                return float('nan')
 
-    #     total_sWorkExtracted = 0
-    #     for device in self.workDevices:
-    #         try:
-    #             stateBefore, stateAfter = self.get_surroundingItems(device)
-    #         except ValueError:
-    #             # if the flow starts from a turbine (e.g. is the flow at the end of turbine, or is a bleed flow), flow items won't list the state before the turbine, and no stateBefore will be returned
-    #             if isinstance(device, Turbine):
-    #                 stateAfter = self.get_surroundingItems(device)[0]
-    #                 stateBefore = device.state_in
-    #         print(stateBefore, stateAfter)
-    #         total_sWorkExtracted += stateBefore.h - stateAfter.h
-    #     return total_sWorkExtracted
+    @property
+    def net_sWorkExtracted(self):
+        return self.get_net_sWorkExtracted(returnExpression=True)
 
     @property
     def sHeatSupplied(self):

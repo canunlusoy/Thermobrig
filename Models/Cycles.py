@@ -12,9 +12,9 @@ class Cycle:
 
     def __init__(self):
         self.flows: List[Flow] = []
-
+        self.netPower = None
         self._equations: List[LinearEquation] = []
-
+        self._initialSolutionComplete = False
 
     def updateEquations(self):
         for equation in self._equations:
@@ -24,25 +24,30 @@ class Cycle:
 
     def solve(self):
 
-        self._convertStates_toFlowPoints()
+        # Steps for initialization
+        if not self._initialSolutionComplete:
+            self._convertStates_toFlowPoints()
 
-        for flow in self.flows:
-            flow._set_devices_endStateReferences()
+            for flow in self.flows:
+                flow._set_devices_endStateReferences()
+            for flow in self.flows:
+                flow.solve()
 
-        for flow in self.flows:
-            flow.solve()
+            intersections = self._get_intersections()
+            if not all(flow.isFullyDefined() for flow in self.flows):
+                for device in intersections:
+                    self._solveIntersection(device)
 
-        intersections = self._get_intersections()
-        if not all(flow.isFullyDefined() for flow in self.flows):
-            for device in intersections:
-                self._solveIntersection(device)
+            if self.netPower is not None:  # if net power is a given, create an equation for it
+                self._add_netPowerBalance()
+                self._resolve_massFlows()
+
+            self._initialSolutionComplete = True
 
         for flow in self.flows:
             flow.solve()
 
         self._updatedUnknowns = []
-
-
 
         solvedEquations = []
         for equation in self._equations:
@@ -60,8 +65,7 @@ class Cycle:
         self.updateEquations()
 
         for equation1, equation2 in combinations(self._equations, 2):
-            if System_ofLinearEquations.isSolvable([equation1, equation2]):
-                system = System_ofLinearEquations([equation1, equation2])
+            if (system := System_ofLinearEquations([equation1, equation2])).isSolvable():
                 solution = system.solve()
                 unknownAddresses = list(solution.keys())
                 for unknownAddress in unknownAddresses:
@@ -76,8 +80,7 @@ class Cycle:
         self.updateEquations()
 
         for equation1, equation2, equation3 in combinations(self._equations, 3):
-            if System_ofLinearEquations.isSolvable([equation1, equation2, equation3]):
-                system = System_ofLinearEquations([equation1, equation2, equation3])
+            if (system := System_ofLinearEquations([equation1, equation2, equation3])).isSolvable():
                 solution = system.solve()
                 unknownAddresses = list(solution.keys())
                 for unknownAddress in unknownAddresses:
@@ -213,3 +216,40 @@ class Cycle:
         else:
             self._equations.append(massBalance)
             massBalance.source = device
+
+    def _add_netPowerBalance(self):
+        powerBalance_LHS = [ ((self, 'netPower'),) ]
+        mainFlow = self._get_mainFlow()
+        for flow in self.flows:
+            powerBalance_LHS.append((-1, (flow, 'massFF'), (mainFlow, 'massFR'), flow.net_sWorkExtracted))
+        powerBalance = LinearEquation(LHS=powerBalance_LHS, RHS=0)
+        powerBalance.source = 'Cycles._add_netPowerBalance'
+        self._equations.append(powerBalance)
+
+    def _get_mainFlow(self) -> Flow:
+        mainFlow = None
+        for flow in self.flows:
+            if flow.massFF == 1:
+                mainFlow = flow
+        assert mainFlow is not None, 'InputError: Main flow with mass fraction 1 is not identified by user.'
+        return mainFlow
+
+    def _resolve_massFlows(self):
+        mainFlow = self._get_mainFlow()
+        for flow in self.flows:
+            self._equations.append(LinearEquation(LHS=[ (1, (flow, 'massFR')), (-1, (mainFlow, 'massFR'), (flow, 'massFF')) ], RHS=0))
+
+        # flow_toResolveMassFlowsFrom = None
+        # for flow in self.flows:
+        #     if isNumeric(flow.massFR) and isNumeric(flow.massFF):
+        #         flow_toResolveMassFlowsFrom = flow
+        #         break
+        #
+        # if flow_toResolveMassFlowsFrom is not None:
+        #     unit_massFR = flow_toResolveMassFlowsFrom.massFR / flow_toResolveMassFlowsFrom.massFF
+        #
+        #     for flow in [flow for flow in self.flows if flow is not flow_toResolveMassFlowsFrom]:
+        #         if isNumeric(flow.massFF):
+        #             flow.set_or_verify({'massFR': unit_massFR * flow.massFF})
+        #         elif isNumeric(flow.massFR):
+        #             flow.set_or_verify({'massFF': flow.massFR / unit_massFR})
