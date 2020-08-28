@@ -20,8 +20,8 @@ def getattr_fromAddress(object, address: str):
     return object
 
 
-def setattr_fromAddress(object, address: str, value):
-    address_split = address.split('.')
+def setattr_fromAddress(object, attributeName: str, value):
+    address_split = attributeName.split('.')
     for address_level in address_split[:-1]:
         object = getattr(object, address_level)
     setattr(object, address_split[-1], value)
@@ -240,7 +240,7 @@ class LinearEquation:
     def solve_and_set(self):
         solution = self.solve()
         unknownAddress = list(solution.keys())[0]
-        setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+        setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
 
     def __str__(self):
         termStrings = []
@@ -314,4 +314,4 @@ class System_ofLinearEquations:
     def solve_and_set(self):
         solution = self.solve()
         for attributeAddress in solution:
-            setattr_fromAddress(object=attributeAddress[0], address=attributeAddress[1], value=solution[attributeAddress])
+            setattr_fromAddress(object=attributeAddress[0], attributeName=attributeAddress[1], value=solution[attributeAddress])

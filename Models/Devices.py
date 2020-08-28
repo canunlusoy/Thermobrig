@@ -34,7 +34,7 @@ class Device:
 
     @property
     def endStates(self):
-        return [state for state in  [self.state_in, self.state_out] if isinstance(state, StatePure)]
+        return twoList([state for state in [self.state_in, self.state_out] if isinstance(state, StatePure)])
 
 class WorkDevice(Device):
 
@@ -105,9 +105,36 @@ class Turbine(WorkDevice):
 
 
 class HeatDevice(Device):
-    def __init__(self, T_exit_fixed: float = float('nan'),
-                 infer_constant_lineP: bool = True, infer_fixed_exitT: bool = True):
+    def __init__(self, infer_constant_P: bool = True):
         super(HeatDevice, self).__init__()
+
+        self._infer_constant_pressure = infer_constant_P
+
+    def infer_constant_pressure(self):
+        """Sets or verifies pressures of end states to be equal in all lines."""
+        number_ofNumericPvals = sum(1 for state in self.endStates if isNumeric(getattr(state, 'P')))
+        endStates = self.endStates
+        if number_ofNumericPvals == 2:
+            assert isWithin(endStates[0].P, 3, '%', endStates[1].P)
+        elif number_ofNumericPvals == 1:
+            state_withNonNumericPval = endStates.itemSatisfying(lambda state: not isNumeric(getattr(state, 'P')))
+            state_withNumericPval = endStates.other(state_withNonNumericPval)
+            state_withNonNumericPval.P = state_withNumericPval.P
+
+
+class Combustor(HeatDevice):
+    def __init__(self):
+        super(Combustor, self).__init__()
+
+
+class Boiler(HeatDevice):
+    def __init__(self, *args, **kwargs):
+        super(Boiler, self).__init__(**kwargs)
+
+
+class ReheatBoiler(HeatDevice):
+    def __init__(self, T_exit_fixed: float = float('nan'), infer_constant_lineP: bool = True, infer_fixed_exitT: bool = True):
+        super(ReheatBoiler, self).__init__()
 
         self._infer_constant_linePressures = infer_constant_lineP
         self.lines: List[twoList[StatePure]] = []
@@ -136,7 +163,7 @@ class HeatDevice(Device):
                 all_endStates.append(endState)
         return all_endStates
 
-    def infer_constant_linePressures(self):
+    def infer_constant_pressure(self):
         """Sets or verifies pressures of end states to be equal in all lines."""
         for line_endStates in self.lines:
             number_ofNumericPvals = sum(1 for state in line_endStates if isNumeric(getattr(state, 'P')))
@@ -165,41 +192,11 @@ class HeatDevice(Device):
                     print('InputError: Boiler is configured to infer fixed exit temperature, i.e. assumes all entering flows leave at same temperature.\n'
                           'Line consisting of {0} \nthrough the boiler has input data at its exit state conflicting with the inferred fixed exit temperature of {1}.'.format(line_endStates, self.T_exit_fixed))
 
-    @property
-    def total_net_sHeatSupplied(self):
-        """Net specific heat supplied over all lines passing through device. This is the net value, i.e. heat extracted is deducted from the heat supplied."""
-        total_net_sHeatProvided = 0
-        for line_state_in, line_state_out in self.lines:
-            total_net_sHeatProvided += (line_state_out.h - line_state_in.h)
-        return total_net_sHeatProvided
-
-    @property
-    def total_sHeatSupplied(self):
-        """Total specific heat supplied over all lines passing through device. This is not the net value - it is the sum of all positive heat supplied to flow."""
-        total_sHeatSupplied = 0
-        for line_state_in, line_state_out in self.lines:
-            sEnthalpyChange = (line_state_out.h - line_state_in.h)
-            if sEnthalpyChange > 0:
-                total_sHeatSupplied += sEnthalpyChange
-        return total_sHeatSupplied
-
-    @property
-    def total_net_sHeatExtracted(self):
-        """Net specific heat extracted over all lines passing through device. This is the net value, i.e. heat supplied is deducted from the heat extracted."""
-        total_sHeatExtracted = 0
-        for line_state_in, line_state_out in self.lines:
-            total_sHeatExtracted += (line_state_in.h - line_state_out.h)
-        return total_sHeatExtracted
 
 
-class Combustor(HeatDevice):
-    def __init__(self):
-        super(Combustor, self).__init__()
 
 
-class Boiler(HeatDevice):
-    def __init__(self, *args, **kwargs):
-        super(Boiler, self).__init__(*args, **kwargs)
+
 
 
 class Condenser(HeatDevice):
@@ -243,7 +240,7 @@ class MixingChamber(Device):
 
 class ClosedFWHeater(HeatDevice):
     def __init__(self, *args, **kwargs):
-        super(ClosedFWHeater, self).__init__(*args, **kwargs)
+        super(ClosedFWHeater, self).__init__(**kwargs)
         # Exit temperatures of lines passing through CFWH don't have to be the same. -> infer_fixed_exitT = False
 
         self.bundles = []
@@ -274,9 +271,41 @@ class OpenFWHeater(MixingChamber):
         super(OpenFWHeater, self).__init__(*args, **kwargs)
 
 
-class HeatExchanger(HeatDevice):
-    def __init__(self, infer_fixed_exitT: bool = False, infer_constant_lineP: bool = True):
-        super(HeatExchanger, self).__init__(infer_fixed_exitT=infer_fixed_exitT, infer_constant_lineP=infer_constant_lineP)
+class HeatExchanger(Device):
+    def __init__(self, T_exit_fixed: float = float('nan'), infer_constant_lineP: bool = True):
+        super(HeatExchanger, self).__init__()
+
+        self.lines: List[twoList[StatePure]] = []
+        self._infer_constant_linePressures = infer_constant_lineP  # sets the inlet and outlet states of each line passing through heat exchanger to have the same pressure.
+
+    def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
+        """Registers a new line, starting with state_in and ending with state_out, i.e. appends [state_in, state_out] to lines list. Additionally, sets the state_in and state_out attributes
+        of the device as the provided ones. These attributes should not be used in heat exchangers - instead, lines should be processed. However these attributes are kept for compatibility reasons."""
+        if (line_endStates := twoList([state_in, state_out])) not in self.lines:
+            self.lines.append(line_endStates)
+            # Set state_in, state_out as the currently set pair - but ideally, when making use of endStates of HeatDevices, methods must make provisions for lines
+            self.state_in = state_in
+            self.state_out = state_out
+
+    @property
+    def endStates(self):
+        """All end states of the device, from all lines."""
+        all_endStates = []
+        for line in self.lines:
+            for endState in line:
+                all_endStates.append(endState)
+        return all_endStates
+
+    def infer_constant_linePressures(self):
+        """Sets or verifies pressures of end states to be equal in all lines."""
+        for line_endStates in self.lines:
+            number_ofNumericPvals = sum(1 for state in line_endStates if isNumeric(getattr(state, 'P')))
+            if number_ofNumericPvals == 2:
+                assert isWithin(line_endStates[0].P, 3, '%', line_endStates[1].P)
+            elif number_ofNumericPvals == 1:
+                state_withNonNumericPval = line_endStates.itemSatisfying(lambda state: not isNumeric(getattr(state, 'P')))
+                state_withNumericPval = line_endStates.other(state_withNonNumericPval)
+                state_withNonNumericPval.P = state_withNumericPval.P
 
 
 class ThrottlingValve:

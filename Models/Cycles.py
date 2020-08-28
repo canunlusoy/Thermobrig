@@ -8,11 +8,12 @@ from Models.States import StatePure, FlowPoint
 from Utilities.Numeric import isNumeric
 from Utilities.PrgUtilities import LinearEquation, System_ofLinearEquations, setattr_fromAddress
 
+
 class Cycle:
 
     def __init__(self):
         self.flows: List[Flow] = []
-        self.netPower = None
+        self.netPower = float('nan')
         self._equations: List[LinearEquation] = []
         self._initialSolutionComplete = False
 
@@ -28,19 +29,20 @@ class Cycle:
         if not self._initialSolutionComplete:
             self._convertStates_toFlowPoints()
 
+            # 2 separate loops - device endStates may be from different flows. First set endState references, then work on each device for each flow they are in.
             for flow in self.flows:
                 flow._set_devices_endStateReferences()
             for flow in self.flows:
                 flow.solve()
 
+            # Identify areas where flows interact, e.g. heat exchangers or flow connections
             intersections = self._get_intersections()
             if not all(flow.isFullyDefined() for flow in self.flows):
                 for device in intersections:
                     self._solveIntersection(device)
 
-            if self.netPower is not None:  # if net power is a given, create an equation for it
-                self._add_netPowerBalance()
-                self._resolve_massFlows()
+            self._add_netPowerBalance()
+            self._resolve_massFlows()
 
             self._initialSolutionComplete = True
 
@@ -55,12 +57,13 @@ class Cycle:
             if equation.isSolvable():
                 solution = equation.solve()
                 unknownAddress = list(solution.keys())[0]
-                setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+                setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
                 self._updatedUnknowns.append(unknownAddress)
                 solvedEquations.append(equation)
 
         for equation in solvedEquations:
             self._equations.remove(equation)
+        solvedEquations = []
 
         self.updateEquations()
 
@@ -69,12 +72,15 @@ class Cycle:
                 solution = system.solve()
                 unknownAddresses = list(solution.keys())
                 for unknownAddress in unknownAddresses:
-                    setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+                    setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
                     self._updatedUnknowns.append(unknownAddress)
                 solvedEquations += [equation1, equation2]
 
         for equation in solvedEquations:
-            self._equations.remove(equation)
+            try:
+                self._equations.remove(equation)
+            except ValueError:
+                pass
         solvedEquations = []
 
         self.updateEquations()
@@ -84,7 +90,7 @@ class Cycle:
                 solution = system.solve()
                 unknownAddresses = list(solution.keys())
                 for unknownAddress in unknownAddresses:
-                    setattr_fromAddress(object=unknownAddress[0], address=unknownAddress[1], value=solution[unknownAddress])
+                    setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
                     self._updatedUnknowns.append(unknownAddress)
                 solvedEquations += [equation1, equation2, equation3]
 
@@ -93,6 +99,21 @@ class Cycle:
         solvedEquations = []
 
         self.updateEquations()
+
+    def _solve_combination_ofEquations(self, number_ofEquations: int):
+        """Iterates through combinations of equations (from the _equations pool) with the specified number_ofEquations. For each combination, checks if the
+        system is solvable. If so, solves it, assigns the unknowns the solution values and removes the solved equations from the _equations pool."""
+        for equationCombination in combinations(self._equations, number_ofEquations):
+            if (system := System_ofLinearEquations(list(equationCombination))).isSolvable():
+                solution = system.solve()
+                unknownAddresses = list(solution.keys())
+                for unknownAddress in unknownAddresses:
+                    setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+                    self._updatedUnknowns.append(unknownAddress)
+
+                # If system is solved, all equations in the combination is solved. Remove them from equations pool.
+                for equation in equationCombination:
+                    self._equations.remove(equation)
 
     def _add_flowReferences_toStates(self):
         """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
@@ -238,18 +259,3 @@ class Cycle:
         mainFlow = self._get_mainFlow()
         for flow in self.flows:
             self._equations.append(LinearEquation(LHS=[ (1, (flow, 'massFR')), (-1, (mainFlow, 'massFR'), (flow, 'massFF')) ], RHS=0))
-
-        # flow_toResolveMassFlowsFrom = None
-        # for flow in self.flows:
-        #     if isNumeric(flow.massFR) and isNumeric(flow.massFF):
-        #         flow_toResolveMassFlowsFrom = flow
-        #         break
-        #
-        # if flow_toResolveMassFlowsFrom is not None:
-        #     unit_massFR = flow_toResolveMassFlowsFrom.massFR / flow_toResolveMassFlowsFrom.massFF
-        #
-        #     for flow in [flow for flow in self.flows if flow is not flow_toResolveMassFlowsFrom]:
-        #         if isNumeric(flow.massFF):
-        #             flow.set_or_verify({'massFR': unit_massFR * flow.massFF})
-        #         elif isNumeric(flow.massFR):
-        #             flow.set_or_verify({'massFF': flow.massFR / unit_massFR})

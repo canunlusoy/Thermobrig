@@ -5,7 +5,7 @@ from typing import Dict, Union
 from Models.Cycles import Cycle
 from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
-from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, ClosedFWHeater, MixingChamber, OpenFWHeater, Trap, HeatExchanger
+from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, ClosedFWHeater, MixingChamber, OpenFWHeater, Trap, HeatExchanger, ReheatBoiler
 from Models.Fluids import Fluid, IdealGas
 from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
 
@@ -33,9 +33,9 @@ class TestFlows(unittest.TestCase):
         print('\n')
         for parameter in expected:
             assert hasattr(testState, parameter)
-            self.assertTrue(isWithin(getattr(testState, parameter), ptolerance, '%', expected[parameter]))
             print('Expected: {0}'.format(expected[parameter]))
             print('Received: {0}'.format(getattr(testState, parameter)))
+            self.assertTrue(isWithin(getattr(testState, parameter), ptolerance, '%', expected[parameter]))
 
     def test_flows_water_01(self):
         # From MECH2201 - A9 Q1
@@ -44,16 +44,16 @@ class TestFlows(unittest.TestCase):
 
         flow = Flow(workingFluid=water)
         flow.items = [state_0 := StatePure(P=10000, T=500),  # State 0
-                      Turbine(eta_isentropic=0.8),
-                      StatePure(P=1000),  # State 1
-                      rhboiler := Boiler(),
-                      StatePure(T=500),  # State 2
-                      Turbine(eta_isentropic=0.8),
-                      StatePure(),  # State 3
-                      Condenser(),
-                      StatePure(P=10, x=0),  # State 4
-                      Pump(eta_isentropic=0.95),
-                      StatePure(),  # State 5
+                      turba := Turbine(eta_isentropic=0.8),
+                      state_1 := StatePure(P=1000),  # State 1
+                      rhboiler := ReheatBoiler(),
+                      state_2 := StatePure(T=500),  # State 2
+                      turbb := Turbine(eta_isentropic=0.8),
+                      state_3 := StatePure(),  # State 3
+                      cond := Condenser(),
+                      state_4 := StatePure(P=10, x=0),  # State 4
+                      pump := Pump(eta_isentropic=0.95),
+                      state_5 := StatePure(),  # State 5
                       rhboiler,
                       state_0]
 
@@ -78,15 +78,18 @@ class TestFlows(unittest.TestCase):
         eta_thermal = flow.get_net_sWorkExtracted() / flow.sHeatSupplied
         x_afterTurbine = flow.states[3].x
 
-        self.assertTrue(isWithin(massFlowRate, 3, '%', 63.66))
         print('Expected: ', 63.66)
         print('Received: ', massFlowRate)
-        self.assertTrue(isWithin(eta_thermal, 3, '%', 0.34))
+        self.assertTrue(isWithin(massFlowRate, 3, '%', 63.66))
+
         print('Expected: ', 0.34)
         print('Received: ', eta_thermal)
-        self.assertTrue(isWithin(x_afterTurbine, 3, '%', 2))
+        self.assertTrue(isWithin(eta_thermal, 5, '%', 0.34))
+
         print('Expected: ', 2)
         print('Received: ', x_afterTurbine)
+        self.assertTrue(isWithin(x_afterTurbine, 3, '%', 2))
+
 
     def test_flows_water_02(self):
 
@@ -96,44 +99,40 @@ class TestFlows(unittest.TestCase):
         flow_a.massFR = 42
         flow_a.massFF = 1
         flow_a.items = [ofwh := OpenFWHeater(),
-                        state_07 := StatePure(x=0),
+                        state_03 := StatePure(x=0),
                         Pump(),
-                        state_08 := StatePure(P=15000),
+                        state_04 := StatePure(P=15000),
                         heatExchanger := HeatExchanger(),
-                        state_09 := StatePure(T=water.define(StatePure(P=600, x=0)).T),
-                        boiler := Boiler(infer_fixed_exitT=False),
-                        state_01 := StatePure(P=15000, T=600),
-                        turbine_a := Turbine(),
-                        state_02 := StatePure(P=1000),
-                        boiler,
-                        state_03 := StatePure(P=1000, T=500),
-                        turbine_b := Turbine(),
-                        state_10 := StatePure(P=600)]
+                        state_05 := StatePure(T=water.define(StatePure(P=600, x=0)).T),
+                        rhboiler := ReheatBoiler(),
+                        state_08 := StatePure(P=15000, T=600),
+                        hpt := Turbine(),
+                        state_09 := StatePure(P=1000),
+                        rhboiler,
+                        state_10 := StatePure(P=1000, T=500),
+                        lpt := Turbine()]
 
         flow_b = Flow(water)
-        flow_b.items = [state_10,
+        flow_b.items = [lpt,
+                        state_11 := StatePure(P=600),
                         heatExchanger,
-                        state_11 := StatePure(x=0),
+                        state_06 := StatePure(x=0),
                         Trap(),
-                        state_12 := StatePure(P=200),
+                        state_07 := StatePure(P=200),
                         ofwh]
 
         flow_c = Flow(water)
-        flow_c.items = [state_10,
-                        turbine_b,
-                        state_13 := StatePure(P=200),
+        flow_c.items = [lpt,
+                        state_12 := StatePure(P=200),
                         ofwh]
 
         flow_d = Flow(water)
-        flow_d.items = [state_10,
-                        turbine_b,
-                        state_13,
-                        turbine_b,
-                        state_04 := StatePure(),
+        flow_d.items = [lpt,
+                        state_13 := StatePure(),
                         condenser := Condenser(),
-                        state_05 := StatePure(P=5, x=0),
+                        state_01 := StatePure(P=5, x=0),
                         Pump(),
-                        state_06 := StatePure(P=200),
+                        state_02 := StatePure(P=200),
                         ofwh]
 
         cycle = Cycle()
@@ -147,9 +146,25 @@ class TestFlows(unittest.TestCase):
 
         cycle.solve()
 
+        self.CompareResults(state_01, {'h': 137.75, 'mu': 0.001005}, 3)
+        self.CompareResults(state_02, {'h': 137.95}, 3)
+        self.CompareResults(state_03, {'h': 504.71, 'mu': 0.001061}, 3)
+        self.CompareResults(state_04, {'h': 520.41}, 3)
+        self.CompareResults(state_06, {'h': 670.38, 'mu': 0.001101}, 3)
+        self.CompareResults(state_05, {'h': 686.23}, 3)
+        self.CompareResults(state_08, {'h': 3583.1, 's': 6.6796}, 3)
+        self.CompareResults(state_09, {'h': 2820.8}, 3)
+        self.CompareResults(state_10, {'h': 3479.1, 's': 7.7642}, 3)
+        self.CompareResults(state_11, {'h': 3310.2}, 3)
+        self.CompareResults(state_12, {'h': 3000.9}, 3)
+        self.CompareResults(state_13, {'x': 0.9205, 'h': 2368.1}, 3)
+
+        self.assertTrue(isWithin(flow_b.massFF, 5, '%', 0.06287))
+        self.assertTrue(isWithin(flow_c.massFF, 3, '%', 0.1165))
+        self.assertTrue(isWithin(cycle.netPower, 3, '%', 77447))
 
 
-        print(3)
+
 
     def test_flows_water_03(self):
 
@@ -157,53 +172,55 @@ class TestFlows(unittest.TestCase):
 
         flow_a = Flow(water)
         flow_a.massFF = 1
+        flow_a.massFR = 75
         flow_a.items = [condenser := Condenser(),
-                        state_1 := StatePure(P=20),
-                        Pump(),
-                        state_2 := StatePure(P=5000),
-                        cfwhA_transit := (cfwhA := ClosedFWHeater()).add_newBundle(),
-                        state_3 := StatePure(),
-                        cfwhB_main := (cfwhB := ClosedFWHeater()).add_newBundle(),
-                        state_4 := StatePure(),
-                        Boiler(),
-                        state_5 := StatePure(T=700),
-                        turbine := Turbine(eta_isentropic=1)]
+                        state_01 := StatePure(P=20),
+                        pump := Pump(),
+                        state_02 := StatePure(P=5000),
+                        cfwha := HeatExchanger(),
+                        state_03 := StatePure(),
+                        cfwhb := HeatExchanger(),
+                        state_04 := StatePure(),
+                        boiler := Boiler(),
+                        state_05 := StatePure(T=700),
+                        turbine := Turbine()]
 
         flow_b = Flow(water)
         flow_b.massFF = 0.1446
         flow_b.items = [turbine,
-                        state_6 := StatePure(P=1400),
-                        cfwhB_second := cfwhB.add_newBundle(),
-                        state_9 := StatePure(),
-                        Trap(),
+                        state_06 := StatePure(P=1400),
+                        cfwhb,
+                        state_09 := StatePure(),
+                        trapb := Trap(),
                         state_10 := StatePure(),
-                        cfwhA_mixing := cfwhA.add_newBundle()]
+                        mixc := MixingChamber()]
 
         flow_c = Flow(water)
         flow_c.items = [turbine,
-                        state_7 := StatePure(P=245),
-                        cfwhA_mixing]
+                        state_07 := StatePure(P=245),
+                        mixc]
+
+        flow_f = Flow(water)
+        flow_f.items = [mixcCond := MixingChamber(),
+                        state_im := StatePure(),
+                        condenser]
 
         flow_d = Flow(water)
-        flow_d.items = [cfwhA_mixing,
+        flow_d.items = [mixc,
                         state_11 := StatePure(),
-                        Trap(),
+                        trapa := Trap(),
                         state_12 := StatePure(),
-                        condenser]
+                        mixcCond]
 
         flow_e = Flow(water)
         flow_e.items = [turbine,
-                        state_8 := StatePure(P=20),
-                        condenser]
+                        state_08 := StatePure(P=20),
+                        mixcCond]
 
-        cycle = Cycle()
-        cycle.flows = [flow_a,
-                       flow_b,
-                       flow_c,
-                       flow_d,
-                       flow_e]
-        cycle.solve()
-        print(4)
+        c = Cycle()
+        c.flows = [flow_a, flow_b, flow_c, flow_d, flow_e, flow_f]
+        c.solve()
+        print(5)
 
 
     def test_flows_water_04(self):
@@ -257,9 +274,19 @@ class TestFlows(unittest.TestCase):
         cycle.netPower = 320000
         cycle.solve()
 
-        for flow in cycle.flows:
-            work = flow.get_net_sWorkExtracted()
-        print(5)
+        for e in cycle._equations:
+            e.update()
+
+        cycle.solve()
+
+        for e in cycle._equations:
+            e.update()
+
+        cycle.solve()
+
+        Qtot = 0
+        for f in cycle.flows:
+            f.get_sHeatSupplied()
 
 
     # def test_flows_air_01(self):

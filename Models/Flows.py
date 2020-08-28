@@ -7,7 +7,7 @@ from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWork
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
-from Models.Devices import Device, WorkDevice, HeatDevice, Boiler, Combustor, MixingChamber, OpenFWHeater, Trap, Turbine
+from Models.Devices import Device, WorkDevice, HeatDevice, MixingChamber, Trap, Turbine, HeatExchanger, ReheatBoiler
 
 from Utilities.Numeric import isNumeric, isWithin
 from Utilities.PrgUtilities import twoList, LinearEquation
@@ -157,24 +157,31 @@ class Flow:
             # Apply isentropic efficiency relations to determine outlet state
             self.solve_workDevice(device)
 
-        if not self._initialSolutionComplete:  # the below processes do not need to be done in each flow solution iteration, but only for the initial one
+        # if not self._initialSolutionComplete:  # the below processes do not need to be done in each flow solution iteration, but only for the initial one
 
-            if isinstance(device, HeatDevice):
-                # Setting end state pressures along the same line if pressures is assumed constant along each line
-                if device._infer_constant_linePressures:
-                    device.infer_constant_linePressures()
+        if isinstance(device, HeatDevice):
+            # Setting end state pressures to be the same
+            if device._infer_constant_pressure:
+                device.infer_constant_pressure()
+
+            if isinstance(device, ReheatBoiler):  # reheat boilers can have multiple lines.
                 # Setting up fixed exit temperature if inferring exit temperature from one exit state
                 if device._infer_fixed_exitT:
                     device.infer_fixed_exitT()
 
-            if isinstance(device, MixingChamber):
-                # Setting pressures of all in / out flows to the same value
-                if device._infer_common_mixingPressure:
-                    device.infer_common_mixingPressure()
+        elif isinstance(device, HeatExchanger):
+            # Setting end state pressures along the same line if pressures is assumed constant along each line
+            if device._infer_constant_linePressures:
+                device.infer_constant_linePressures()
 
-            if isinstance(device, Trap):
-                if device._infer_constant_enthalpy:
-                    device.infer_constant_enthalpy()
+        elif isinstance(device, MixingChamber):
+            # Setting pressures of all in / out flows to the same value
+            if device._infer_common_mixingPressure:
+                device.infer_common_mixingPressure()
+
+        elif isinstance(device, Trap):
+            if device._infer_constant_enthalpy:
+                device.infer_constant_enthalpy()
 
         self._defineStates_ifDefinable(endStates)
 
@@ -200,6 +207,10 @@ class Flow:
 
                 # # overwrite h with calculated value
                 # state_out.h = device.state_in.h + device.state_in.mu * (state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
+
+    @property
+    def net_sWorkExtracted(self):
+        return self.get_net_sWorkExtracted(returnExpression=True)
 
     def get_net_sWorkExtracted(self, returnExpression: bool = False):
         self._net_sWorkExtracted = float('nan')
@@ -227,15 +238,27 @@ class Flow:
                 return float('nan')
 
     @property
-    def net_sWorkExtracted(self):
-        return self.get_net_sWorkExtracted(returnExpression=True)
-
-    @property
     def sHeatSupplied(self):
-        total_sHeatSupplied = 0
-        for device in set(self.heatDevices):  # Important! Boilers etc. may be listed twice if flow is reheated. A single total_sHeatSupplied of a HeatDevice includes heat supplied in all passes!
-            total_sHeatSupplied += device.total_sHeatSupplied
-        return total_sHeatSupplied
+        return self.get_sHeatSupplied(returnExpression=True)
+
+    def get_sHeatSupplied(self, returnExpression: bool = False):
+        self._sHeatSupplied = float('nan')
+        expression_LHS = [ (-1, (self, '_sHeatSupplied')) ]
+        for device in [device for device in self.heatDevices if not isinstance(device, HeatExchanger)]:
+            expression_LHS += [ (1, (device.state_out, 'h')), (-1, (device.state_in, 'h')) ]
+        expression = LinearEquation(LHS=expression_LHS, RHS=0)
+        expression.source = 'Flows.get_sHeatSupplied'
+        if expression.isSolvable():
+            assert expression.get_unknowns()[0][0] == (self, '_sHeatSupplied')
+            # Linear equation is solvable if only there is only one unknown. If there is only one unknown, it must be the self._net_sWorkExtracted since we know it is unknown for sure
+            result = list(expression.solve().values())[0]
+            return result
+        else:
+            if returnExpression:
+                return expression.isolate( [(self, '_sHeatSupplied')] )
+            else:
+                return float('nan')
+
 
 
 class IdealGasFlow(Flow):
