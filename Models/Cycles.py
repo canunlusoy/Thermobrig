@@ -3,7 +3,7 @@ from typing import List, Dict, Set
 from itertools import combinations
 
 from Models.Flows import Flow
-from Models.Devices import Device, OpenFWHeater, ClosedFWHeater, MixingChamber, HeatExchanger, Turbine
+from Models.Devices import Device, MixingChamber, HeatExchanger, Turbine
 from Models.States import StatePure, FlowPoint
 from Utilities.Numeric import isNumeric
 from Utilities.PrgUtilities import LinearEquation, System_ofLinearEquations, setattr_fromAddress
@@ -13,15 +13,22 @@ class Cycle:
 
     def __init__(self):
         self.flows: List[Flow] = []
+
         self.netPower = float('nan')
+        self.Q_in = float('nan')
+
         self._equations: List[LinearEquation] = []
         self._initialSolutionComplete = False
+        self._solvedEquations = []
+        self._updatedUnknowns = set()
 
-    def updateEquations(self):
+        self.intersections = None
+
+    def updateEquations(self, updateAll: bool = False):
         for equation in self._equations:
-            if any(unknown in equation.get_unknowns() for unknown in self._updatedUnknowns):
+            if updateAll or any(unknown in equation.get_unknowns() for unknown in self._updatedUnknowns):
                 equation.update()
-            self._updatedUnknowns = []
+            self._updatedUnknowns = set()
 
     def solve(self):
 
@@ -35,22 +42,48 @@ class Cycle:
             for flow in self.flows:
                 flow.solve()
 
+            # TODO #######################################################################
+
             # Identify areas where flows interact, e.g. heat exchangers or flow connections
-            intersections = self._get_intersections()
+            self.intersections = self._get_intersections()
+
             if not all(flow.isFullyDefined() for flow in self.flows):
-                for device in intersections:
+                for device in self.intersections:
                     self._solveIntersection(device)
 
+            # Review intersections, construct equations & attempt to solve - if there are undefined states around them
+            # This process needs to be done only once since equations need to be constructed once. Then they are added to the _equations pool.
+            # intersections_attempted_toSolve = []  # list of intersection devices on which the _solveIntersection() has been run - keeping track not to run the _solveIntersection twice on the same device
+            # for state in self.get_undefinedStates():
+            #     surroundingDevices = state.flow.get_surroundingItems(state)
+            #     for surroundingDevice in surroundingDevices:
+            #         if surroundingDevice in self.intersections and surroundingDevice not in intersections_attempted_toSolve:
+            #             self._solveIntersection(surroundingDevice)
+            #             intersections_attempted_toSolve.append(surroundingDevice)
+
             self._add_netPowerBalance()
-            self._resolve_massFlows()
+            self._add_Q_in_relation()
+            self._add_massFlowRelations()
 
+            self.updateEquations()  # updating all equations in case _solveIntersection() above found any of their unknowns
             self._initialSolutionComplete = True
+        # Initialization steps completed.
 
+
+        # Review flow devices again in case some properties of some of their endStates became known above
         for flow in self.flows:
             flow.solve()
 
-        self._updatedUnknowns = []
+        self.updateEquations()
+        self._solve_solvableEquations()
+        self.updateEquations()
+        self._solve_combination_ofEquations(number_ofEquations=2)
+        self.updateEquations()
+        self._solve_combination_ofEquations(number_ofEquations=3)
+        self.updateEquations()
 
+
+    def _solve_solvableEquations(self):
         solvedEquations = []
         for equation in self._equations:
             equation.update()
@@ -58,70 +91,32 @@ class Cycle:
                 solution = equation.solve()
                 unknownAddress = list(solution.keys())[0]
                 setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-                self._updatedUnknowns.append(unknownAddress)
+                self._updatedUnknowns.add(unknownAddress)
                 solvedEquations.append(equation)
 
         for equation in solvedEquations:
             self._equations.remove(equation)
-        solvedEquations = []
-
-        self.updateEquations()
-
-        for equation1, equation2 in combinations(self._equations, 2):
-            if (system := System_ofLinearEquations([equation1, equation2])).isSolvable():
-                solution = system.solve()
-                unknownAddresses = list(solution.keys())
-                for unknownAddress in unknownAddresses:
-                    setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-                    self._updatedUnknowns.append(unknownAddress)
-                solvedEquations += [equation1, equation2]
-
-        for equation in solvedEquations:
-            try:
-                self._equations.remove(equation)
-            except ValueError:
-                pass
-        solvedEquations = []
-
-        self.updateEquations()
-
-        for equation1, equation2, equation3 in combinations(self._equations, 3):
-            if (system := System_ofLinearEquations([equation1, equation2, equation3])).isSolvable():
-                solution = system.solve()
-                unknownAddresses = list(solution.keys())
-                for unknownAddress in unknownAddresses:
-                    setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-                    self._updatedUnknowns.append(unknownAddress)
-                solvedEquations += [equation1, equation2, equation3]
-
-        for equation in solvedEquations:
-            self._equations.remove(equation)
-        solvedEquations = []
-
-        self.updateEquations()
 
     def _solve_combination_ofEquations(self, number_ofEquations: int):
         """Iterates through combinations of equations (from the _equations pool) with the specified number_ofEquations. For each combination, checks if the
         system is solvable. If so, solves it, assigns the unknowns the solution values and removes the solved equations from the _equations pool."""
         for equationCombination in combinations(self._equations, number_ofEquations):
+
+            # If any of the equations got solved in a previous iteration and got removed from _equations, skip this combination
+            # Combinations are generated beforehand at the beginning of the main for loop.
+            if any(equation not in self._equations for equation in equationCombination):
+                continue
+
             if (system := System_ofLinearEquations(list(equationCombination))).isSolvable():
                 solution = system.solve()
                 unknownAddresses = list(solution.keys())
                 for unknownAddress in unknownAddresses:
                     setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-                    self._updatedUnknowns.append(unknownAddress)
+                    self._updatedUnknowns.add(unknownAddress)
 
                 # If system is solved, all equations in the combination is solved. Remove them from equations pool.
                 for equation in equationCombination:
                     self._equations.remove(equation)
-
-    def _add_flowReferences_toStates(self):
-        """Adds a 'flow' attribute to all the state objects in all flows included in the cycle. """
-        # Not a big fan of doing this - states are a lower level entity than flows and should not have access to the higher level entity which contains it.
-        # Instead, they should be accessed from the flows which contain them. But had to resort to this for convenience.
-        for flow in self.flows:
-            for state in flow.states:
-                setattr(state, 'flow', flow)
 
     def _convertStates_toFlowPoints(self):
         """Iterates over all flows and changes states with FlowPoints based on them."""
@@ -170,7 +165,9 @@ class Cycle:
             self._add_turbineMassBalance(device)
 
     def solve_heatExchanger(self, device: HeatExchanger):
-        """Does a heat balance over the flows entering and exiting the heat exchanger, calculates the missing property and sets its value in the relevant object."""
+        """Constructs the heat balance equation over the flows entering and exiting the heat exchanger. If equation is solvable as is (i.e. has 1 unknown), calculates the missing property
+        and sets its value in the relevant object."""
+
         # m1h11 + m2h21 + m3h31 = m1h12 + m2h22 + m3h32
 
         # m1(h1i - h1o) + m2(h2i - h2o) + m3(h3i - h3o) = 0
@@ -182,8 +179,11 @@ class Cycle:
             heatBalance_LHS.append( ((-1), (state_out.flow, 'massFF'), (state_out, 'h')) )
         heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
 
-        if heatBalance.isSolvable():
-            heatBalance.solve_and_set()
+        if heatBalance.isSolvable():  # if solvable by itself, there is only one unknown
+            solution = heatBalance.solve()
+            unknownAddress = list(solution.keys())[0]
+            setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+            self._updatedUnknowns.add(unknownAddress)
         else:
             self._equations.append(heatBalance)
             heatBalance.source = device
@@ -219,7 +219,10 @@ class Cycle:
 
         for equation in [massBalance, heatBalance]:
             if equation.isSolvable():
-                equation.solve_and_set()
+                solution = equation.solve()
+                unknownAddress = list(solution.keys())[0]
+                setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+                self._updatedUnknowns.add(unknownAddress)
             else:
                 self._equations.append(equation)
                 equation.source = device
@@ -233,19 +236,36 @@ class Cycle:
         massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
 
         if massBalance.isSolvable():
-            massBalance.solve_and_set()
+            solution = massBalance.solve()
+            unknownAddress = list(solution.keys())[0]
+            setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+            self._updatedUnknowns.add(unknownAddress)
         else:
             self._equations.append(massBalance)
             massBalance.source = device
 
     def _add_netPowerBalance(self):
+        """Constructs the power balance equation, i.e. netPower = sum(flow.massFR * workDevice.net_sWorkExtracted for workDevice in flow) for flow in self.flows.
+        If netPower is known, this equation can help finding other unknowns such as mass flow rates or state enthalpies. Otherwise, netPower can be obtained vice versa.
+        Adds the equation the _equations pool."""
         powerBalance_LHS = [ ((self, 'netPower'),) ]
         mainFlow = self._get_mainFlow()
         for flow in self.flows:
-            powerBalance_LHS.append((-1, (flow, 'massFF'), (mainFlow, 'massFR'), flow.net_sWorkExtracted))
+            powerBalance_LHS.append( (-1, (flow, 'massFF'), (mainFlow, 'massFR'), flow.net_sWorkExtracted) )
         powerBalance = LinearEquation(LHS=powerBalance_LHS, RHS=0)
         powerBalance.source = 'Cycles._add_netPowerBalance'
         self._equations.append(powerBalance)
+
+    def _add_Q_in_relation(self):
+        """Constructs the equation of total heat inputs. If Q_in is a given, can help find other unknowns such as mass flow rates or state
+        enthalpies; otherwise, can help determine Q_in."""
+        Q_in_relation_LHS = [ ((self, 'Q_in'),) ]
+        mainFlow = self._get_mainFlow()
+        for flow in self.flows:
+            Q_in_relation_LHS.append( (-1, (flow, 'massFF'), (mainFlow, 'massFR'), flow.sHeatSupplied) )
+        Q_in_relation = LinearEquation(LHS=Q_in_relation_LHS, RHS=0)
+        Q_in_relation.source = 'Cycles._add_Q_in_relation'
+        self._equations.append(Q_in_relation)
 
     def _get_mainFlow(self) -> Flow:
         mainFlow = None
@@ -255,7 +275,18 @@ class Cycle:
         assert mainFlow is not None, 'InputError: Main flow with mass fraction 1 is not identified by user.'
         return mainFlow
 
-    def _resolve_massFlows(self):
+    def _add_massFlowRelations(self):
+        """Expects main flow (flow with mass flow fraction = 1) to be identified already. Constructs the equation **mainFlow.massFR * flow.massFF = flow.massFR** for each flow. Adds the equation for each flow
+        to the _equations pool."""
         mainFlow = self._get_mainFlow()
         for flow in self.flows:
             self._equations.append(LinearEquation(LHS=[ (1, (flow, 'massFR')), (-1, (mainFlow, 'massFR'), (flow, 'massFF')) ], RHS=0))
+
+    def get_undefinedStates(self) -> List[StatePure]:
+        """Returns a list of all (non-repeating) undefined states included in the cycle, i.e. considers states from all flows in the cycle."""
+        toReturn = []
+        for flow in self.flows:
+            for state in flow.get_undefinedStates():
+                if state not in toReturn:
+                    toReturn.append(state)
+        return toReturn

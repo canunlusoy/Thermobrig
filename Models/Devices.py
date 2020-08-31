@@ -5,7 +5,7 @@ from Models.States import StatePure
 from Methods.ThprOps import apply_isentropicEfficiency
 
 from Utilities.Numeric import isNumeric, isWithin
-from Utilities.PrgUtilities import twoList
+from Utilities.PrgUtilities import twoList, LinearEquation
 
 
 class Device:
@@ -109,6 +109,7 @@ class HeatDevice(Device):
         super(HeatDevice, self).__init__()
 
         self._infer_constant_pressure = infer_constant_P
+        self.sHeatSupplied = float('nan')
 
     def infer_constant_pressure(self):
         """Sets or verifies pressures of end states to be equal in all lines."""
@@ -121,6 +122,8 @@ class HeatDevice(Device):
             state_withNumericPval = endStates.other(state_withNonNumericPval)
             state_withNonNumericPval.P = state_withNumericPval.P
 
+    def get_sHeatSuppliedExpression(self, forFlow: 'Flow' = None):  # forFlow is here for compatibility - see ReheatBoiler for real usage
+        return [(1, (self.state_out, 'h')), (-1, (self.state_in, 'h'))]
 
 class Combustor(HeatDevice):
     def __init__(self):
@@ -138,6 +141,7 @@ class ReheatBoiler(HeatDevice):
 
         self._infer_constant_linePressures = infer_constant_lineP
         self.lines: List[twoList[StatePure]] = []
+        self.sHeatSupplied = float('nan')
         # assumes pressure remains constant in each line passing through device, e.g. if a boiler is used twice by the same flow, each time, the pressure of the line
         # passing through the boiler will be different but the pressure inside the line will be constant - effectively, sets the inlet and outlet states of each line
         # passing through boiler to have the same pressure.
@@ -192,12 +196,17 @@ class ReheatBoiler(HeatDevice):
                     print('InputError: Boiler is configured to infer fixed exit temperature, i.e. assumes all entering flows leave at same temperature.\n'
                           'Line consisting of {0} \nthrough the boiler has input data at its exit state conflicting with the inferred fixed exit temperature of {1}.'.format(line_endStates, self.T_exit_fixed))
 
-
-
-
-
-
-
+    def get_sHeatSuppliedExpression(self, forFlow: 'Flow' = None):
+        # forFlow: Reheat boilers have multiple lines passing through them. Both lines do not have to belong to the same flow. When total heat supplied in flows is calculated, each HeatDevice's
+        # get_sHeatSuppliedExpression method is called. When the method is called on rhboilers, if no provision is made for from which flow the method is called, the method will return the equation
+        # giving the sum of heat supplied in all lines, not all of which may belong to the same flow, or more importantly not to the flow from which the method is called. Relying on the assumption that this method
+        # will be called only when cycle level solution is made, and assuming that all states have been converted to FlowPoints by then (i.e. states know which flow they belong to), this method checks
+        # if each line belongs to the calling flow, and builds the expression of heat supplied only for that flow.
+        toReturn = []
+        for line_endStates in self.lines:
+            if forFlow is None or all(line_endState.flow is forFlow for line_endState in line_endStates):
+                toReturn += [ (1, (line_endStates[1], 'h')), (-1, (line_endStates[0], 'h')) ]
+        return toReturn
 
 class Condenser(HeatDevice):
     def __init__(self):

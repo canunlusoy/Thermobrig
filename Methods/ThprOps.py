@@ -279,8 +279,6 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
 
     # Fully define state: State is not saturated (mixture)
     else:
-        # Superheated vapor
-
         # Set phase_mpDF: section of main mpDF with states of only the same phase
         if state.x == 2:
             phase_mpDF = mpDF.cq.suphVaps
@@ -410,16 +408,23 @@ def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
                         states_at_y_queryValue.append(interpolate_betweenPureStates(state_at_xVal_less_yVal_below, state_at_xVal_less_yVal_above, interpolate_at={refPropt2_name: refPropt2_queryValue}))
                         break
 
-                t2 = time()
-                print('TimeNotification: 2DInterpolation - Time to iteratively find smallest suitable interpolation interval: {0} seconds'.format((t2 - t1) / 1000))
-
                 if len(states_at_y_queryValue) == 2:
+                    t2 = time()
+                    print('TimeNotification: 2DInterpolation - Time to iteratively find smallest suitable interpolation interval: {0} seconds'.format((t2 - t1) / 1000))
                     return interpolate_betweenPureStates(states_at_y_queryValue[0], states_at_y_queryValue[1], interpolate_at={refPropt1_name: refPropt1_queryValue})
                 else:
                     # 2 states to interpolate between could not be found
-                    if state.x == -1 and T_available:
+                    print('ThPrNotification: 2DInterpolation not successful.')
+                    if state.x == -1 and T_available and P_available:
                         # SATURATED LIQUID APPROXIMATION AT SAME TEMPERATURE FOR SUBCOOLED LIQUIDS
-                        return get_saturationPropts(phase_mpDF, T=state.T)[0]  # returns [satLiq, satVap], pick first
+                        print('ThPrNotification: Applying saturated liquid approximation for subcooled liquid state.')
+                        satLiq_atT = get_saturationPropts(mpDF, T=state.T)[0]  # returns [satLiq, satVap], pick first
+                        # should provide full mpDF and not phase_mpDF - if phase is subcooled, won't find saturated states (x=0) in its phase_mpDF
+
+                        toReturn = satLiq_atT
+                        toReturn.P = state.P  # Equation 3-8
+                        toReturn.h = toReturn.h + toReturn.mu * (state.P - satLiq_atT.P)  # Equation 3-9
+                        return toReturn
                     else:
                         raise NeedsExtrapolationError('DataError InputError: No {0} states with values of {1} lower or higher than the query value of {2} are available in the data table.'.format(phase.upper(), refPropt1_name, refPropt1_queryValue))
 

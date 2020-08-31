@@ -7,7 +7,7 @@ from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWork
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
-from Models.Devices import Device, WorkDevice, HeatDevice, MixingChamber, Trap, Turbine, HeatExchanger, ReheatBoiler
+from Models.Devices import Device, WorkDevice, HeatDevice, MixingChamber, HeatExchanger, Trap, Turbine, Boiler, ReheatBoiler
 
 from Utilities.Numeric import isNumeric, isWithin
 from Utilities.PrgUtilities import twoList, LinearEquation
@@ -56,6 +56,14 @@ class Flow:
         """Checks if all states in the flow are fully defined."""
         return all(state.isFullyDefined() for state in self.states)
 
+    def get_undefinedStates(self) -> List[StatePure]:
+        """Returns a list of states in the flow which are not fully defined."""
+        toReturn = []
+        for state in self.states:
+            if not state.isFullyDefined() and state not in toReturn:
+                toReturn.append(state)
+        return toReturn
+
     def set_or_verify(self, setDict: Dict):
         for parameterName in setDict:
             if hasattr(self, parameterName):
@@ -84,18 +92,18 @@ class Flow:
         self._define_definableStates()
 
         if not self._initialSolutionComplete:
-            self._set_devices_endStateReferences()
+            self._set_devices_endStateReferences()  # This done for all flows in the cycle scope
 
             for device in self.devices:
                 print('Solving device: {0}'.format(device))
                 self._solveDevice(device)
 
             self._define_definableStates()
+            self._initialSolutionComplete = True
 
-        get_undefinedStates = lambda: [state for state in self.states if not state.isFullyDefined()]
         undefinedStates_previousIteration = []
         iterationCounter = 0
-        while (undefinedStates := get_undefinedStates()) != undefinedStates_previousIteration:
+        while (undefinedStates := self.get_undefinedStates()) != undefinedStates_previousIteration:  # continue as long as something new is resolved in the previous iteration
             # If new states became defined in the previous iteration, they may also help resolve other states.
             iterationCounter += 1
             print('Flow solution iteration #{0}'.format(iterationCounter))
@@ -109,8 +117,6 @@ class Flow:
 
             undefinedStates_previousIteration = undefinedStates
 
-        if not self._initialSolutionComplete:
-            self._initialSolutionComplete = True
 
     def _define_definableStates(self) -> None:
         """Runs the appropriate defFcn (function to fully define the state properties) for states which can be fully defined, i.e. has 2+ independent intensive properties defined."""
@@ -244,8 +250,9 @@ class Flow:
     def get_sHeatSupplied(self, returnExpression: bool = False):
         self._sHeatSupplied = float('nan')
         expression_LHS = [ (-1, (self, '_sHeatSupplied')) ]
-        for device in [device for device in self.heatDevices if not isinstance(device, HeatExchanger)]:
-            expression_LHS += [ (1, (device.state_out, 'h')), (-1, (device.state_in, 'h')) ]
+        for device in set(device for device in self.heatDevices if isinstance(device, Boiler) or isinstance(device, ReheatBoiler)):  # if not isinstance(device, HeatExchanger)
+            expression_LHS += device.get_sHeatSuppliedExpression(forFlow=self)
+            # expression_LHS += [ (1, (device.state_out, 'h')), (-1, (device.state_in, 'h')) ]
         expression = LinearEquation(LHS=expression_LHS, RHS=0)
         expression.source = 'Flows.get_sHeatSupplied'
         if expression.isSolvable():

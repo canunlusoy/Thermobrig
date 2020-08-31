@@ -54,6 +54,8 @@ class LinearEquation:
         self.LHS = []
         self.RHS = RHS
 
+        self._one = 1
+
         self.organizeTerms_fromOriginal()
 
     def organizeTerms_fromOriginal(self):
@@ -196,7 +198,7 @@ class LinearEquation:
                 self.RHS -= self.LHS[termIndex][0]
                 self.LHS.pop(termIndex)
 
-        for termIndex in terms_toRemove:
+        for termIndex in reversed(terms_toRemove):  # reversed - otherwise would tamper with indices of items identified for removal
             self.LHS.pop(termIndex)
 
         self._gatherUnknowns()
@@ -219,9 +221,11 @@ class LinearEquation:
                 constantFactor_ofIsolatedTerm = term[0]
             else:
                 expression.append( [-1 * term_constantFactor, term_unknowns_attributeAddresses] )  # isolating unknown, so moving all other terms to the other side of the equation, so multiplying by -1
+        expression.append( [self.RHS, [(self, '_one')]] )  # adding it in format [ constantFactor, [unknowns] ]
+        # expression.append(self.RHS)
 
         for termIndex, [term_constantFactor, term_unknowns_attributeAddresses] in enumerate(expression):  # dividing all terms moved to the other side by the coefficient of the unknown
-            modifiedTerm = list(expression[termIndex])
+            modifiedTerm = list(expression[termIndex])  # list() to create a copy
             modifiedTerm[0] /= constantFactor_ofIsolatedTerm
             expression[termIndex] = tuple(modifiedTerm)
 
@@ -243,6 +247,7 @@ class LinearEquation:
         setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
 
     def __str__(self):
+        """Returns a string representation of the equation in a more human readable form."""
         termStrings = []
         for term in self.LHS:
             coefficient = term[0]
@@ -260,6 +265,7 @@ class LinearEquation:
         return termStrings + ' = ' + str(self.RHS)
 
     def get_asDict(self):
+        """Returns a dictionary representation of the equation. Each unknown is a key, and the matching values are their coefficients. RHS (i.e. all constant terms) are tagged with the 'RHS' key."""
         dictRepresentation = {}
         for [term_constantFactor, term_unknowns_attributeAddresses] in self.LHS:
             term_unknowns_attributeAddresses_key = tuple(term_unknowns_attributeAddresses)

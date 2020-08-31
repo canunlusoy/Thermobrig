@@ -139,6 +139,11 @@ class FlowPoint(StatePure):
         self.baseState = baseState
         self.flow = flow
 
+    def get_flow_massFF(self):
+        return getattr(self.flow, 'massFF')
+
+    flow_massFF = property(fget=get_flow_massFF)
+
     def get_P(self):
         return getattr(self.baseState, 'P')
 
