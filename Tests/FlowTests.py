@@ -513,3 +513,249 @@ class TestFlows(unittest.TestCase):
         self.assertTrue(isWithin(cycle.netPower/cycle.Q_in, 2, '%', 0.444))
 
         pass
+
+    def test_flows_water_08(self):
+        # CENGEL P10-34
+
+        flow_a = Flow(water)
+        flow_a.massFF = 1
+        flow_a.items = [state_1 := StatePure(x=0),
+                        pump := Pump(),
+                        state_2 := StatePure(P=5000),
+                        rhboiler := ReheatBoiler(infer_fixed_exitT=False),
+                        state_3 := StatePure(),
+                        hpt := Turbine(),
+                        state_4 := StatePure(P=1200, x=0.96),
+                        rhboiler,
+                        state_5 := StatePure(),
+                        lpt := Turbine(),
+                        state_6 := StatePure(P=20, x=0.96),
+                        condenser := Condenser(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+
+        self.CompareResults(state_2, {'h': 256.49}, 2)
+        self.CompareResults(state_3, {'h': 3006.9, 'T': 327.2}, 2)
+        self.CompareResults(state_5, {'h': 3436, 'T': 481.1}, 2)
+
+        self.assertTrue(isWithin(flow_a.get_sHeatSupplied(), 2, '%', 3482))
+        self.assertTrue(isWithin(flow_a.get_net_sWorkExtracted() / flow_a.get_sHeatSupplied(), 2, '%', 0.35))
+
+        pass
+
+    def test_flows_water_09(self):
+        # CENGEL P10-35
+
+        flow_a = Flow(water)
+        flow_a.massFF = 1
+        flow_a.massFR = 12
+        flow_a.items = [state_1 := StatePure(x=0),
+                        pump := Pump(),
+                        state_2 := StatePure(P=15000),
+                        rhboiler := ReheatBoiler(infer_fixed_exitT=True),
+                        state_3 := StatePure(T=500),
+                        hpt := Turbine(),
+                        state_4 := StatePure(),
+                        rhboiler,
+                        state_5 := StatePure(),
+                        lpt := Turbine(),
+                        state_6 := StatePure(P=10, x=0.9),
+                        condenser := Condenser(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+
+        self.CompareResults(state_2, {'h': 206.95}, 2)
+        self.CompareResults(state_5, {'P': 2160, 'h': 3466.61}, 2)  # not sure why answers say 2150 - did manually, ~2161
+        self.CompareResults(state_4, {'h': 2817.2}, 2)
+
+        self.assertTrue(isWithin(cycle.Q_in, 2, '%', 45039))
+        self.assertTrue(isWithin(cycle.netPower / cycle.Q_in, 2, '%', 0.426))
+
+        pass
+
+    def test_flows_water_10(self):
+        # CENGEL P10-37
+
+        flow_a = Flow(water)
+        flow_a.massFF = 1
+        flow_a.items = [state_1 := StatePure(x=0, P=10),
+                        pump := Pump(eta_isentropic=0.95),
+                        state_2 := StatePure(),
+                        rhboiler := ReheatBoiler(infer_fixed_exitT=True),
+                        state_3 := StatePure(P=10000, T=500),
+                        hpt := Turbine(eta_isentropic=0.8),
+                        state_4 := StatePure(),
+                        rhboiler,
+                        state_5 := StatePure(P=1000, T=500),
+                        lpt := Turbine(eta_isentropic=0.8),
+                        state_6 := StatePure(),
+                        condenser := Condenser(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.netPower = 80000
+        cycle.solve()
+
+        self.CompareResults(state_2, {'h': 202.43}, 2)
+        self.CompareResults(state_4, {'h': 2902}, 2)
+        self.CompareResults(state_6, {'h': 2664.8, 'T': 88.1}, 2)
+
+        self.assertTrue(isWithin(flow_a.get_net_sWorkExtracted(), 2, '%', 1276.8))
+        self.assertTrue(isWithin(flow_a.get_sHeatSupplied(), 2, '%', 3749.8))
+        self.assertTrue(isWithin(flow_a.massFR, 2, '%', 62.7))
+
+        pass
+
+    def test_flows_water_11(self):
+        # CENGEL P10-38
+
+        flow_a = Flow(water)
+        flow_a.massFF = 1
+        flow_a.items = [state_1 := StatePure(x=0, P=10),
+                        pump := Pump(eta_isentropic=1),
+                        state_2 := StatePure(),
+                        rhboiler := ReheatBoiler(infer_fixed_exitT=True),
+                        state_3 := StatePure(P=10000, T=500),
+                        hpt := Turbine(eta_isentropic=1),
+                        state_4 := StatePure(),
+                        rhboiler,
+                        state_5 := StatePure(P=1000, T=500),
+                        lpt := Turbine(eta_isentropic=1),
+                        state_6 := StatePure(),
+                        condenser := Condenser(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.netPower = 80000
+        cycle.solve()
+
+        self.CompareResults(state_6, {'x': 0.949}, 2)
+
+        self.assertTrue(isWithin(flow_a.get_net_sWorkExtracted() / flow_a.get_sHeatSupplied(), 2, '%', 0.413))
+        self.assertTrue(isWithin(flow_a.massFR, 2, '%', 50))
+
+        pass
+
+    def test_flows_water_12(self):
+        # CENGEL P10-45
+
+        flow_a = Flow(water)
+        flow_a.massFF = 1
+        flow_a.items = [ofwh:= MixingChamber(),
+                        state_3 := StatePure(x=0),
+                        pump2 := Pump(),
+                        state_4 := StatePure(),
+                        boiler := Boiler(),
+                        state_5 := StatePure(P=6000, T=450),
+                        turbine := Turbine()]
+
+        flow_b = Flow(water)
+        flow_b.items = [turbine,
+                        state_6 := StatePure(P=400),
+                        ofwh]
+
+        flow_c = Flow(water)
+        flow_c.items = [turbine,
+                        state_7 := StatePure(P=20),
+                        condenser := Condenser(),
+                        state_1 := StatePure(x=0),
+                        pump1 := Pump(),
+                        state_2 := StatePure(),
+                        ofwh]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a, flow_b, flow_c]
+        cycle.solve()
+        cycle.solve()
+
+        wtot = 0
+        for f in cycle.flows:
+            wtot += f.massFF * f.get_net_sWorkExtracted()
+
+        qtot = 0
+        for f in cycle.flows:
+            qtot += f.massFF * f.get_sHeatSupplied()
+
+        self.assertTrue(isWithin(wtot, 1, '%', 1017))
+        self.assertTrue(isWithin(wtot/qtot, 1, '%', 0.378))
+
+        pass
+
+
+        # CENGEL P10-36
+        # TODO - NEED TO TRY/ERROR & CONSTRUCT LARGER SCOPE EQUATIONS - Isentropic efficiency
+        # flow_a = Flow(water)
+        # flow_a.massFF = 1
+        # flow_a.massFR = 7.7
+        # flow_a.items = [state_1 := StatePure(x=0),
+        #                 pump := Pump(eta_isentropic=0.9),
+        #                 state_2 := StatePure(P=12500),
+        #                 rhboiler := ReheatBoiler(infer_fixed_exitT=True),
+        #                 state_3 := StatePure(T=550),
+        #                 hpt := Turbine(eta_isentropic=0.85),
+        #                 state_4 := StatePure(P=2000),
+        #                 rhboiler,
+        #                 state_5 := StatePure(T=450),
+        #                 lpt := Turbine(eta_isentropic=0.85),
+        #                 state_6 := StatePure(x=0.95),
+        #                 condenser := Condenser(),
+        #                 state_1]
+        #
+        # cycle = Cycle()
+        # cycle.flows = [flow_a]
+        # cycle.solve()
+        #
+        # pass
+
+        # # CENGEL P10-56
+        #
+        # flow_a = Flow(water)
+        # flow_a.massFF = 1
+        # flow_a.items = [mixc := MixingChamber(),
+        #                 state_04 := StatePure(),
+        #                 rhboiler := ReheatBoiler(),
+        #                 state_05 := StatePure(P=10000, T=550),
+        #                 hpt := Turbine()]
+        #
+        # flow_b = Flow(water)
+        # flow_b.items = [hpt,
+        #                 state_06 := StatePure(P=800),
+        #                 cfwh := HeatExchanger(),
+        #                 state_03 := StatePure(P=800, x=0),
+        #                 pump2 := Pump(),
+        #                 state_10 := StatePure(),
+        #                 mixc]
+        #
+        # flow_c = Flow(water)
+        # flow_c.items = [hpt,
+        #                 state_06,
+        #                 rhboiler,
+        #                 state_07 := StatePure(T=500),
+        #                 lpt := Turbine(),
+        #                 state_08 := StatePure(),
+        #                 condenser := Condenser(),
+        #                 state_01 := StatePure(P=10, x=0),
+        #                 pump1 := Pump(),
+        #                 state_02 := StatePure(),
+        #                 cfwh,
+        #                 state_09 := StatePure(),
+        #                 mixc]
+        #
+        # cycle = Cycle()
+        # cycle.flows = [flow_a, flow_b, flow_c]
+        #
+        # cycle.solve()
+        # for e in cycle._equations:
+        #     e.update()
+        # cycle.solve()
+        #
+        # pass
+

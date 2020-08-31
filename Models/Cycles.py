@@ -234,6 +234,7 @@ class Cycle:
         for state_out in device.states_out:
             massBalance_LHS.append((-1, (state_out.flow, 'massFF')))
         massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
+        massBalance.source = 'Cycles._add_turbineMassBalance'
 
         if massBalance.isSolvable():
             solution = massBalance.solve()

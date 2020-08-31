@@ -198,7 +198,18 @@ class Flow:
         occurrences_ofDevice = [index for index, item in enumerate(self.items) if item is device]
         states_afterDevice: List[StatePure] = [self.items[index + 1] for index in occurrences_ofDevice if index + 1 < len(self.items)]  # state_afterDevice is a StatePure for sure after the check in _check_itemsConsistency
 
+        # If isentropic efficiency is 100%, set entropy of all endStates of the device is the same. This will help determine some states.
+        if device.eta_isentropic == 1:
+            numeric_s_values = [state.s for state in device.endStates if isNumeric(state.s)]
+            if len(numeric_s_values) > 0:
+                for endState in device.endStates:
+                    # use the first numeric s value as reference to validate others against / or set them
+                    endState.set({'s': numeric_s_values[0]})  # TODO - ERROR PRONE - added for cengel p10-34, 35
+
+        self._defineStates_ifDefinable(device.endStates)  # if any states became definable with the above process
+
         for state_out in states_afterDevice:
+
             if device.state_in.hasDefined('s') and device.state_in.hasDefined('h') and state_out.hasDefined('P'):
 
                 # going to overwrite state_out - TODO: Need to copy in the first time, then verify in subseqs

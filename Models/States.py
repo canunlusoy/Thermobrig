@@ -1,7 +1,7 @@
 from pandas import DataFrame
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union, Dict, List
 
 from Utilities.Numeric import isNumeric, isWithin
@@ -110,13 +110,13 @@ class StatePure:
             if parameterName in self._properties_all:
                 setattr(self, parameterName, setDict[parameterName])
 
-    def set_or_verify(self, setDict: Dict):
+    def set_or_verify(self, setDict: Dict, percentDifference: float = 3):
         for parameterName in setDict:
             if parameterName in self._properties_all:
                 if not self.hasDefined(parameterName):
                     setattr(self, parameterName, setDict[parameterName])
                 else:
-                    assert isWithin(getattr(self, parameterName), 3, '%', setDict[parameterName])
+                    assert isWithin(getattr(self, parameterName), percentDifference, '%', setDict[parameterName])
 
 
 class StateIGas(StatePure):
@@ -139,10 +139,22 @@ class FlowPoint(StatePure):
         self.baseState = baseState
         self.flow = flow
 
-    def get_flow_massFF(self):
-        return getattr(self.flow, 'massFF')
+    # Custom __eq__ method - the default version does not take flow of state into account. Overriding __eq__ could have been avoided by simpler use of dataclass but due to property (getter/setter) based
+    # nature of this dataclass, I used this method.
 
-    flow_massFF = property(fget=get_flow_massFF)
+    def __members(self):
+        return (self.baseState, self.flow)
+
+    def __eq__(self, other):
+        if isinstance(other, StatePure):
+            return all(getattr(self, property) == getattr(other, property) for property in self._properties_all) and (self.flow is other.flow)
+        else:
+            return False
+
+    def __hash__(self):  # if __eq__ is overridden, __hash__ also needs to be overridden.
+        return hash(self.__members())
+
+    #
 
     def get_P(self):
         return getattr(self.baseState, 'P')
