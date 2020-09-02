@@ -92,7 +92,7 @@ class Flow:
         self._define_definableStates()
 
         if not self._initialSolutionComplete:
-            self._set_devices_endStateReferences()  # This done for all flows in the cycle scope
+            # self._set_devices_endStateReferences()  # This done for all flows in the cycle scope
 
             for device in self.devices:
                 print('Solving device: {0}'.format(device))
@@ -126,7 +126,8 @@ class Flow:
         if isinstance(states, StatePure):
             states = [states]
         for state in states:
-            self.workingFluid.defineState_ifDefinable(state)
+            if not state.isFullyDefined():  # Tries to define only undefined states! Doesn't process already defined states again!
+                self.workingFluid.defineState_ifDefinable(state)
 
     def _set_devices_endStateReferences(self):
         """For each device in the items list, sets state_in as the preceding state in the items list, and sets state_out as the next state in the items list.
@@ -204,7 +205,8 @@ class Flow:
             if len(numeric_s_values) > 0:
                 for endState in device.endStates:
                     # use the first numeric s value as reference to validate others against / or set them
-                    endState.set({'s': numeric_s_values[0]})  # TODO - ERROR PRONE - added for cengel p10-34, 35
+                    if not endState.hasDefined('s'):
+                        endState.set({'s': numeric_s_values[0]})  # TODO - ERROR PRONE - added for cengel p10-34, 35
 
         self._defineStates_ifDefinable(device.endStates)  # if any states became definable with the above process
 
@@ -277,6 +279,9 @@ class Flow:
             else:
                 return float('nan')
 
+    def __str__(self):
+        toReturn = 'Flow@{0} - massFF:{1}, massFR:{2}'.format(id(self), self.massFF, self.massFR)
+        return toReturn
 
 
 class IdealGasFlow(Flow):

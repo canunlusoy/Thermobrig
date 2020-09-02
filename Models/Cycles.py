@@ -14,8 +14,15 @@ class Cycle:
     def __init__(self):
         self.flows: List[Flow] = []
 
+        # Overall values
         self.netPower = float('nan')
         self.Q_in = float('nan')
+
+        # Specific values (per kg/s of flow on the mainline)
+        self.net_sPower = float('nan')
+        self.sHeat = float('nan')
+
+        self.efficiency = float('nan')
 
         self._equations: List[LinearEquation] = []
         self._initialSolutionComplete = False
@@ -39,8 +46,11 @@ class Cycle:
             # 2 separate loops - device endStates may be from different flows. First set endState references, then work on each device for each flow they are in.
             for flow in self.flows:
                 flow._set_devices_endStateReferences()
+
             for flow in self.flows:
                 flow.solve()
+
+            # Get updated unknowns (i.e. defined states) from flow solution
 
             # TODO #######################################################################
 
@@ -49,7 +59,7 @@ class Cycle:
 
             if not all(flow.isFullyDefined() for flow in self.flows):
                 for device in self.intersections:
-                    self._solveIntersection(device)
+                    self._solveIntersection(device)  # constructs equations for intersections & adds to the pool
 
             # Review intersections, construct equations & attempt to solve - if there are undefined states around them
             # This process needs to be done only once since equations need to be constructed once. Then they are added to the _equations pool.
@@ -61,8 +71,12 @@ class Cycle:
             #             self._solveIntersection(surroundingDevice)
             #             intersections_attempted_toSolve.append(surroundingDevice)
 
+            self._add_net_sPower_relation()
+            self._add_sHeat_relation()
             self._add_netPowerBalance()
             self._add_Q_in_relation()
+            self._add_efficiency_relation()
+
             self._add_massFlowRelations()
 
             self.updateEquations()  # updating all equations in case _solveIntersection() above found any of their unknowns
@@ -127,9 +141,6 @@ class Cycle:
 
     def _get_intersections(self):
         """Iterates through flows' items to find intersections. Specifically, checks for shared endpoints and devices."""
-
-        # TODO - Prevent inclusion of turbines with multiple extractions as intersections!
-
         endPoints = []
         intersections = set()
 
@@ -169,7 +180,6 @@ class Cycle:
         and sets its value in the relevant object."""
 
         # m1h11 + m2h21 + m3h31 = m1h12 + m2h22 + m3h32
-
         # m1(h1i - h1o) + m2(h2i - h2o) + m3(h3i - h3o) = 0
         # heatBalance = LinearEquation([ [ ( (state_in, 'flow.massFF'), state_in.h - state_out.h) for state_in, state_out in device.lines], 0 ])
 
@@ -234,7 +244,7 @@ class Cycle:
         for state_out in device.states_out:
             massBalance_LHS.append((-1, (state_out.flow, 'massFF')))
         massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
-        massBalance.source = 'Cycles._add_turbineMassBalance'
+        massBalance.source = device
 
         if massBalance.isSolvable():
             solution = massBalance.solve()
@@ -243,7 +253,6 @@ class Cycle:
             self._updatedUnknowns.add(unknownAddress)
         else:
             self._equations.append(massBalance)
-            massBalance.source = device
 
     def _add_netPowerBalance(self):
         """Constructs the power balance equation, i.e. netPower = sum(flow.massFR * workDevice.net_sWorkExtracted for workDevice in flow) for flow in self.flows.
@@ -268,7 +277,35 @@ class Cycle:
         Q_in_relation.source = 'Cycles._add_Q_in_relation'
         self._equations.append(Q_in_relation)
 
+    def _add_net_sPower_relation(self):
+        """Constructs the equation of net work per unit flow, i.e. per kg/s of flow on the mainline."""
+        net_sPower_relation_LHS = [ (-1, (self, 'net_sPower'),) ]
+        for flow in self.flows:
+            net_sPower_relation_LHS.append( ((flow, 'massFF'), flow.net_sWorkExtracted) )
+        net_sPower_relation = LinearEquation(LHS=net_sPower_relation_LHS, RHS=0)
+        net_sPower_relation.source = 'Cycles._add_net_sPower_relation'
+        self._equations.append(net_sPower_relation)
+        self._net_sPower_relation = net_sPower_relation
+
+    def _add_sHeat_relation(self):
+        """Constructs the equation of specific heat input per unit flow (per kg/s) on the mainline."""
+        sHeat_relation_LHS = [ (-1, (self, 'sHeat'),) ]
+        for flow in self.flows:
+            sHeat_relation_LHS.append( ((flow, 'massFF'), flow.sHeatSupplied) )
+        net_sPower_relation = LinearEquation(LHS=sHeat_relation_LHS, RHS=0)
+        net_sPower_relation.source = 'Cycles._add_sHeat_relation'
+        self._equations.append(net_sPower_relation)
+        self._sHeat_relation = net_sPower_relation
+
+    def _add_efficiency_relation(self):
+        """Constructs the equation of thermal efficiency of the complete cycle."""
+        # eta = wnet_o / q_in -> eta * q_in = wnet_o
+        eta_relation_LHS = [ ( (self, 'efficiency'), (self._sHeat_relation.isolate([(self, 'sHeat'),])) ), (-1, (self._net_sPower_relation.isolate([(self, 'net_sPower'),]))) ]
+        eta_relation = LinearEquation(LHS=eta_relation_LHS, RHS=0)
+        self._equations.append(eta_relation)
+
     def _get_mainFlow(self) -> Flow:
+        """Returns the flow whose mass flow fraction is 1."""
         mainFlow = None
         for flow in self.flows:
             if flow.massFF == 1:
