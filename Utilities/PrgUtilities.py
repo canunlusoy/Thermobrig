@@ -98,7 +98,7 @@ class LinearEquation:
                     break  # process one term and break
         # Brackets expanded.
 
-        for term in self._LHS_original:  # each term is a tuple
+        for term in self._LHS_original:  # each term is a tuple as all brackets expanded above
             constantFactors = []
             unknownFactors = []
 
@@ -114,6 +114,7 @@ class LinearEquation:
                         constantFactors.append(attribute)
                     else:
                         # If the object.attribute does not have a value, it is an unknownFactor
+                        # TODO - the following check may be accommodated to have equation solved if the high-power term is found in another equation
                         assert item not in unknownFactors, 'LinearEquationError: Same unknown appears twice in one term, i.e. a higher power of the unknown encountered - not a linear equation!'
                         unknownFactors.append(item)
 
@@ -256,7 +257,7 @@ class LinearEquation:
             termString = str(coefficient) + ' * '
             unknownStrings = []
             for unknown in unknownSet:
-                unknownString = unknown[0].__class__.__name__ + '@' + str(id(unknown[0])) + '.' + unknown[1]
+                unknownString = unknown[0].__class__.__name__ + '@' + str(id(unknown[0]))[-4:] + '.' + unknown[1]  # last 4 digits of variable ID . attribute name
                 unknownStrings.append(unknownString)
             termString += str.join(' * ', unknownStrings)
             termStrings.append(termString)
@@ -282,9 +283,15 @@ class System_ofLinearEquations:
         self.equations = equations
 
     def isSolvable(self):
+        """Checks if the system of linear equations is solvable by:\n
+        (1) Checking if number of equations is equal to number of variables in all equations\n
+        (2) Checking if all equations have the same variables\n
+        (3) Checking if equations are linear indeed, i.e. single unknowns only, not products of unknowns\n
+        (4) Checking rank of system, i.e. if equations are linearly independent"""
+
         sampleEquation = self.equations[0]
         # Check if (# of equations) == (# of variables in sampleEquation)
-        # Check if all equations have the same number of variables
+        # Check if all equations have the same variables
         if len(self.equations) == len(sampleEquation.get_unknowns()):
             if all(equation.get_unknowns() == sampleEquation.get_unknowns() for equation in self.equations if equation is not sampleEquation): # TODO: Order of unknowns may affect
 

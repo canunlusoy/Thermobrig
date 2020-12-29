@@ -181,6 +181,10 @@ class Flow:
             if device._infer_constant_linePressures:
                 device.infer_constant_linePressures()
 
+            # Setting temperature of exit states equal for all lines # TODO - not the ideal place - inter-flow operation should ideally be in cycle scope
+            if device._infer_common_exitTemperatures:
+                device.infer_common_exitTemperatures()
+
         elif isinstance(device, MixingChamber):
             # Setting pressures of all in / out flows to the same value
             if device._infer_common_mixingPressure:

@@ -281,11 +281,12 @@ class OpenFWHeater(MixingChamber):
 
 
 class HeatExchanger(Device):
-    def __init__(self, T_exit_fixed: float = float('nan'), infer_constant_lineP: bool = True):
+    def __init__(self, T_exit_fixed: float = float('nan'), infer_constant_lineP: bool = True, infer_common_exitT: bool = False):
         super(HeatExchanger, self).__init__()
 
         self.lines: List[twoList[StatePure]] = []
         self._infer_constant_linePressures = infer_constant_lineP  # sets the inlet and outlet states of each line passing through heat exchanger to have the same pressure.
+        self._infer_common_exitTemperatures = infer_common_exitT  # sets the exit temperature of both lines to be equal
 
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
         """Registers a new line, starting with state_in and ending with state_out, i.e. appends [state_in, state_out] to lines list. Additionally, sets the state_in and state_out attributes
@@ -316,6 +317,13 @@ class HeatExchanger(Device):
                 state_withNumericPval = line_endStates.other(state_withNonNumericPval)
                 state_withNonNumericPval.P = state_withNumericPval.P
 
+    def infer_common_exitTemperatures(self):
+        """Sets the exit state temperature of all lines to be equal."""
+        line_exitStates = [line_endStates[1] for line_endStates in self.lines]
+        numeric_exitStateTvals = [line_exitState.T for line_exitState in line_exitStates if isNumeric(line_exitState.T)]
+        if len(numeric_exitStateTvals) > 0:
+            for line_exitState in line_exitStates:
+                line_exitState.set_or_verify({'T': numeric_exitStateTvals[0]})
 
 class ThrottlingValve:
     def __init__(self):

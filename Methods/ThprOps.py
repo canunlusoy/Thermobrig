@@ -68,7 +68,6 @@ def get_saturationPropts(materialPropertyDF: DataFrame, P: Union[float, int] = f
         satLiq_atP = materialPropertyDF.query('P == {0} and x == 0'.format(P))
         if satLiq_atP.empty:
             # exact state (saturated liquid at P - state denoted "_f") not found
-
             satLiq_atP = interpolate_onSaturationCurve(materialPropertyDF, interpolate_by='P', interpolate_at=P, endpoint='f')
             materialPropertyDF.append(satLiq_atP.get_asDict_allProperties(), ignore_index=True)  # append the calculated (interpolated) state to materialProperty table for future use in runtime if needed - won't have to interpolate again
         else:
