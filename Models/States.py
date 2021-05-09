@@ -21,9 +21,12 @@ class StatePure:
     _properties_mixture = ['x']
     _properties_all = _properties_regular + _properties_mixture
 
-    def hasDefined(self, propertyName: str) -> bool:
+    def hasDefined(self, propertyName: Union[str, List]) -> bool:
         """Returns true if a value for the given property is defined."""
-        return isNumeric(getattr(self, propertyName))
+        if isinstance(propertyName, str):
+            return isNumeric(getattr(self, propertyName))
+        elif isinstance(propertyName, list):
+            return all(isNumeric(getattr(self, property)) for property in propertyName)
 
     def isFullyDefined(self, consider_mixProperties: bool = True) -> bool:
         propertyList = self._properties_all
@@ -49,7 +52,7 @@ class StatePure:
         return definable
 
     def get_asDict_definedProperties(self) -> OrderedDict:
-        """Returns OrderedDict mapping property names to values for properties which have numeric values defined. Models are ordered according to preference in interpolation."""
+        """Returns OrderedDict mapping property names to values for properties which have numeric values defined. Properties are ordered according to preference in interpolation."""
         return OrderedDict([(propertyName, getattr(self, propertyName)) for propertyName in self._properties_all if self.hasDefined(propertyName)])
 
     def get_asList_definedPropertiesNames(self) -> List:
@@ -73,7 +76,7 @@ class StatePure:
             else:
                 missingProperties_inDFRow.append(propertyName)
         if missingProperties_inDFRow != []:
-            print('Models ' + str(missingProperties_inDFRow) + ' not provided in DataFrame row.')
+            print('Initializing state ' + str(self) + ' from DFRow: \n' + str(dfRow),'Properties ' + str(missingProperties_inDFRow) + ' not provided in DataFrame row.')
         return self
 
     def init_fromDict(self, dictionary: Dict):
@@ -114,7 +117,7 @@ class StatePure:
         for parameterName in setDict:
             if parameterName in self._properties_all:
                 if not self.hasDefined(parameterName):
-                    setattr(self, parameterName, setDict[parameterName])
+                    self.set({parameterName: setDict[parameterName]})
                 else:
                     assert isWithin(getattr(self, parameterName), percentDifference, '%', setDict[parameterName])
 
@@ -122,13 +125,44 @@ class StatePure:
 class StateIGas(StatePure):
 
     # In addition to properties of StatePure
+
+    # Properties for variable-c analysis
     s0: float = float('nan')
+    P_r: float = float('nan')
+    mu_r: float = float('nan')
+
     x: int = 2  # superheated vapor / gas
 
-    _properties_regular = ['P', 'T', 'mu', 'h', 'u', 's0']  # ordered in preference to use in interpolation
-    _properties_mixture = ['x']
-    _properties_all = _properties_regular + _properties_mixture
+    _properties_regular = ['T', 'P', 'mu', 'h', 'u']  # ordered in preference to use in interpolation
+    _properties_variable_c = ['P_r', 'mu_r', 's0']  # T-dependent properties used in analysis with variable specific heats
+    _properties_all = _properties_regular + _properties_variable_c
 
+    def isFullyDefined(self, constant_c: bool = True, consider_mixProperties: bool = True) -> bool:
+        propertyList = self._properties_regular
+        if not constant_c:  # if constant c analysis is made, does not care if the variable-c analysis parameters are defined or not
+            propertyList = self._properties_all
+        if all(self.hasDefined(propertyName) for propertyName in propertyList):
+            return True
+        return False
+
+    def isFullyDefinable(self):
+        """Checks if all state variables can be determined based on the availability of properties in the ideal gas law, P*mu = R*T. \n
+        R (gas constant) is a Fluid property, and is not carried with the StateIGas object. However, in use, Fluid should be defined when StateIGas is used. So assumes R is known."""
+
+        definable = False
+
+        # Ideal gas law: P * mu = R * T
+        #                _ * __ = R * _
+
+        if self.hasDefined(['P', 'mu']):
+            # if P & mu defined (both LHS terms), T can be found, assuming R is known
+            definable = True
+        elif self.hasDefined('T') and any(self.hasDefined(property) for property in ['P', 'mu']):
+            # if T is defined, and one of P or mu is defined, the other unknown LHS term can be found, assuming R is known
+            definable = True
+
+        # An alternative method to check if isFullyDefinable is to check if number of unknowns among P, T, mu is 1. This method here is more descriptive so leaving as is.
+        return definable
 
 class FlowPoint(StatePure):
 
@@ -219,3 +253,10 @@ class FlowPoint(StatePure):
         setattr(self.baseState, 's0', value)
 
     s0 = property(fget=get_s0, fset=set_s0)
+
+    def set(self, setDict: Dict):
+        """Sets values of the properties to the values provided in the dictionary."""
+        
+        for parameterName in setDict:
+            if parameterName in self._properties_all:
+                setattr(self, parameterName, setDict[parameterName])

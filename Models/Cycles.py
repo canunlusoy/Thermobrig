@@ -11,7 +11,9 @@ from Utilities.PrgUtilities import LinearEquation, System_ofLinearEquations, set
 
 class Cycle:
 
-    def __init__(self):
+    def __init__(self, type: str = 'power'):
+        self.type = type
+
         self.flows: List[Flow] = []
 
         # Overall values
@@ -22,7 +24,10 @@ class Cycle:
         self.net_sPower = float('nan')
         self.sHeat = float('nan')
 
-        self.efficiency = float('nan')
+        if self.type == 'power':
+            self.efficiency = float('nan')
+        elif self.type == 'refrigeration':
+            self.COP = float('nan')
 
         self._equations: List[LinearEquation] = []
         self._initialSolutionComplete = False
@@ -75,7 +80,11 @@ class Cycle:
             self._add_sHeat_relation()
             self._add_netPowerBalance()
             self._add_Q_in_relation()
-            self._add_efficiency_relation()
+
+            if self.type == 'power':
+                self._add_efficiency_relation()
+            elif self.type == 'refrigeration':
+                self._add_COP_relation()
 
             self._add_massFlowRelations()
 
@@ -303,6 +312,11 @@ class Cycle:
         eta_relation_LHS = [ ( (self, 'efficiency'), (self._sHeat_relation.isolate([(self, 'sHeat'),])) ), (-1, (self._net_sPower_relation.isolate([(self, 'net_sPower'),]))) ]
         eta_relation = LinearEquation(LHS=eta_relation_LHS, RHS=0)
         self._equations.append(eta_relation)
+
+    def _add_COP_relation(self):
+        """Constructs the equation of the coefficient of performance (COP) of the complete cycle."""
+        # COP = Q_in/W_in
+        # TODO: COP_relation_LHS = [ ( (self, 'COP'), (self.) ) ]
 
     def _get_mainFlow(self) -> Flow:
         """Returns the flow whose mass flow fraction is 1."""

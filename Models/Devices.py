@@ -65,6 +65,9 @@ class Compressor(WorkDevice):
     def __init__(self, eta_isentropic: float = 1):
         super(Compressor, self).__init__(eta_isentropic)
 
+class IGasCompressor(Compressor):
+    pass
+
 
 class Pump(WorkDevice):
     def __init__(self, eta_isentropic: float = 1):
@@ -133,6 +136,10 @@ class Combustor(HeatDevice):
 class Boiler(HeatDevice):
     def __init__(self, *args, **kwargs):
         super(Boiler, self).__init__(**kwargs)
+
+
+class Intercooler(HeatDevice):
+    pass
 
 
 class ReheatBoiler(HeatDevice):

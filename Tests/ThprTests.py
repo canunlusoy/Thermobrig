@@ -582,3 +582,9 @@ class TestStateDefineMethods_Air(unittest.TestCase):
         s3 = define_StateIGas(StateIGas(P=6435, T=(2046.35-273.15)), air)
         self.CompareResults(s3, {'mu': 0.09126}, 3)
 
+
+class TestIGasIsentropicRelations(unittest.TestCase):
+
+    def test_air_01(self):
+
+        pass

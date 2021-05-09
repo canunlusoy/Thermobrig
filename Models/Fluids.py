@@ -13,6 +13,9 @@ class Fluid:
         self.mpDF = mpDF
         self.defFcn = fullyDefine_StatePure
 
+        self.k = float('nan')
+        self.cp = float('nan')
+
     def define(self, state: StatePure):
         """Wrapper around the state definition function to directly include the fluid's mpDF."""
         return self.defFcn(state, self.mpDF)
@@ -28,11 +31,12 @@ class Fluid:
 
 class IdealGas(Fluid):
 
-    def __init__(self, mpDF: DataFrame, R: float):
+    def __init__(self, mpDF: DataFrame, R: float, k: float = float('nan')):
 
         super(IdealGas, self).__init__(mpDF)
         self.defFcn = define_StateIGas
         self.R = R
+        self.k = k
 
         assert 'P' not in mpDF.mp.availableProperties  # for an ideal gas, P is independent of others
 

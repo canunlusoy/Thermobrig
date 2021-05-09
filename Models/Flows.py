@@ -3,7 +3,7 @@ from math import exp
 from operator import itemgetter
 from typing import Union, List, Dict
 
-from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWorkRelation
+from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWorkRelation, apply_isentropicIGasProcess
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
@@ -18,14 +18,15 @@ from Utilities.Exceptions import DataVerificationError
 
 class Flow:
 
-    def __init__(self, workingFluid: Fluid, massFlowRate: float = float('nan'), massFlowFraction: float = float('nan'), calculate_h_forIncompressibles: bool = False):
+    def __init__(self, workingFluid: Fluid, massFlowRate: float = float('nan'), massFlowFraction: float = float('nan'), constant_c: bool = False):
 
         # Not considering flows with multiple fluids, one flow can contain only one fluid
         self.workingFluid = workingFluid
         self.massFR = massFlowRate
         self.massFF = massFlowFraction
-        self._calculate_h_forIncompressibles = calculate_h_forIncompressibles
 
+        # Flow analysis setting
+        self.constant_c = constant_c
 
         self.items = []
         # Items is a list of devices and states making up the flow.
@@ -203,8 +204,10 @@ class Flow:
         occurrences_ofDevice = [index for index, item in enumerate(self.items) if item is device]
         states_afterDevice: List[StatePure] = [self.items[index + 1] for index in occurrences_ofDevice if index + 1 < len(self.items)]  # state_afterDevice is a StatePure for sure after the check in _check_itemsConsistency
 
-        # If isentropic efficiency is 100%, set entropy of all endStates of the device is the same. This will help determine some states.
+        # IF ISENTROPIC PROCESS
         if device.eta_isentropic == 1:
+
+            # If isentropic efficiency is 100%, set entropy of all endStates of the device is the same. This will help determine some states.
             numeric_s_values = [state.s for state in device.endStates if isNumeric(state.s)]
             if len(numeric_s_values) > 0:
                 for endState in device.endStates:
@@ -212,14 +215,22 @@ class Flow:
                     if not endState.hasDefined('s'):
                         endState.set({'s': numeric_s_values[0]})  # TODO - ERROR PRONE - added for cengel p10-34, 35
 
+            # IF WORKING FLUID IS IDEAL GAS
+            if isinstance(self.workingFluid, IdealGas):
+                for endState in device.endStates:
+                    # Can determine additional properties based on ideal gas isentropic process relations
+                    apply_isentropicIGasProcess(constant_c=self.constant_c, state_in=device.state_in, state_out=endState, fluid=self.workingFluid)
+
         self._defineStates_ifDefinable(device.endStates)  # if any states became definable with the above process
+
 
         for state_out in states_afterDevice:
 
             if device.state_in.hasDefined('s') and device.state_in.hasDefined('h') and state_out.hasDefined('P'):
 
                 # going to overwrite state_out - TODO: Need to copy in the first time, then verify in subseqs
-                state_out.copy_fromState(apply_isentropicEfficiency(state_in=device.state_in,
+                state_out.copy_fromState(apply_isentropicEfficiency(constant_c=self.constant_c,
+                                                                    state_in=device.state_in,
                                                                     state_out_ideal=state_out,
                                                                     eta_isentropic=device.eta_isentropic,
                                                                     fluid=self.workingFluid))
