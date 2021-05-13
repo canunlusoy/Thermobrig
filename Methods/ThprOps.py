@@ -49,9 +49,9 @@ def get_saturationPressure_atT(mpDF: DataFrame, T: float) -> float:
         if not saturatedStates.empty:
             # Saturated states at T provided in the table
             saturatedStates_pressures = saturatedStates['P'].to_list()
-            sample_saturationpressure = saturatedStates_pressures[0]
-            assert all(saturationPressure == sample_saturationpressure for saturationPressure in saturatedStates_pressures), 'ThDataError: Not all saturated states at T = {0} are at the same pressure! - All saturated states are expected to occur at same T & P'.format(T)
-            return sample_saturationpressure
+            sample_saturationPressure = saturatedStates_pressures[0]
+            assert all(saturationPressure == sample_saturationPressure for saturationPressure in saturatedStates_pressures), 'ThDataError: Not all saturated states at T = {0} are at the same pressure! - All saturated states are expected to occur at same T & P'.format(T)
+            return sample_saturationPressure
 
         else:
             # Saturated state at T not provided directly
@@ -119,7 +119,10 @@ def get_saturationProperties(materialPropertyDF: DataFrame, P: Union[float, int]
 
 
 def interpolate_betweenPureStates(pureState_1: StatePure, pureState_2: StatePure, interpolate_at: Dict, mode: str = 'linear') -> StatePure:
-    interpolatedState = StatePure()
+
+    assert pureState_1.__class__ is pureState_2.__class__
+    interpolatedState = pureState_1.__class__()  # Retrieving class of provided state programmatically to ensure the returned interpolated state is the same type - could be StatePure or StateIGas
+
     assert len(keys := list(interpolate_at.keys())) == 1
     referenceProperty = keys[0]
     referenceValue = interpolate_at[referenceProperty]
@@ -157,6 +160,24 @@ def interpolate_onSaturationCurve(mpDF: DataFrame, interpolate_by: str, interpol
     satState_atProptVal = interpolate_betweenPureStates(satState_below, satState_above, interpolate_at={queryPropt: queryValue})
     assert satState_atProptVal.isFullyDefined()
     return satState_atProptVal
+
+
+def interpolate_inIGasTable(mpDF: DataFrame, interpolate_by: str, interpolate_at: float) -> StateIGas:
+    """Method to interpolate in the mpDF of an ideal gas, which should give T-dependent properties such as h, u, P_r, mu_r, s0."""
+
+    queryPropt, queryValue = interpolate_by, interpolate_at
+
+    exactMatch = mpDF.query('{0} == {1}'.format(queryPropt, queryValue))
+
+    if exactMatch.empty:
+        states_ordered_byPropt = mpDF.sort_values(queryPropt)
+        proptVal_below, proptVal_above = get_surroundingValues(states_ordered_byPropt[queryPropt].to_list(), queryValue)
+        state_below = StateIGas().init_fromDFRow( mpDF.query('{0} == {1}'.format(queryPropt, proptVal_below)) )
+        state_above = StateIGas().init_fromDFRow( mpDF.query('{0} == {1}'.format(queryPropt, proptVal_above)) )
+
+        state_atProptVal = interpolate_betweenPureStates(state_below, state_above, interpolate_at={queryPropt: queryValue})
+        assert all([state_atProptVal.hasDefined(property) for property in StateIGas._properties_Tdependent])
+        return state_atProptVal
 
 
 def fullyDefine_StatePure(state: StatePure, mpDF: DataFrame):
@@ -435,7 +456,7 @@ def apply_IGasLaw(state: StateIGas, R: float):
     IGasLaw_availableProperties = [propertyName for propertyName in IGasLaw_allProperties if isNumeric(getattr(state, propertyName))]
     IGasLaw_missingProperties = [propertyName for propertyName in IGasLaw_allProperties if propertyName not in IGasLaw_availableProperties]
 
-    if number_ofMissingProperties := len(IGasLaw_missingProperties) == 1:
+    if (number_ofMissingProperties := len(IGasLaw_missingProperties)) == 1:
         assert state.isFullyDefinable()
         missingProperty = IGasLaw_missingProperties[0]
         if missingProperty == 'P':
@@ -446,46 +467,50 @@ def apply_IGasLaw(state: StateIGas, R: float):
             state.T = to_deg_C(state.P * state.mu / R)
     elif number_ofMissingProperties == 0:
         # If all properties available, check consistency / compliance with the law
-        assert to_Kelvin(state.T) == (state.P * state.mu / R), 'DataError InputError: Provided / inferred state properties not compliant with ideal gas law.'
+        assert isApproximatelyEqual(to_Kelvin(state.T), (state.P * state.mu / R), 3), 'DataError InputError: Provided / inferred state properties not compliant with ideal gas law.'
     elif number_ofMissingProperties == 2:
         print(str.format('apply_IGasLaw: Insufficient data - cannot apply law to find missing properties {0}', IGasLaw_missingProperties))
 
 
-def define_StateIGas(state: StateIGas, fluid: 'IdealGas'):
+def fullyDefine_StateIGas(state: StateIGas, fluid: 'IdealGas'):
     """Tries to fill in the properties of an ideal gas state by applying the ideal gas law and looking up state on the provided mpDF."""
+    apply_IGasLaw(state, fluid.R)
 
+    # Do an ideal gas table look-up after applying ideal gas law above. The process above may first determine T and only then this table look-up can be done.
     if len(available_TDependentProperties := [propertyName for propertyName in state.get_asList_definedPropertiesNames() if propertyName in fluid.mpDF.mp.availableProperties]) >= 1:
         # Get tabulated T-dependent properties
         refPropt_name = available_TDependentProperties[0]
         state_at_refPropt = fluid.mpDF.cq.cQuery({refPropt_name: getattr(state, refPropt_name)})  # Try finding exact state on mpDF
-        try:
-            if state_at_refPropt.empty:
-                # Interpolate in mpDF
-                refPropt_valueBelow, refPropt_valueAbove = get_surroundingValues(fluid.mpDF[refPropt_name], value=getattr(state, refPropt_name))
-                state_at_refPropt_valueBelow = StateIGas().init_fromDFRow(fluid.mpDF.cq.cQuery({refPropt_name: refPropt_valueBelow}))
-                state_at_refPropt_valueAbove = StateIGas().init_fromDFRow(fluid.mpDF.cq.cQuery({refPropt_name: refPropt_valueAbove}))
-                state_at_refPropt = interpolate_betweenPureStates(state_at_refPropt_valueBelow, state_at_refPropt_valueAbove, interpolate_at={refPropt_name: getattr(state, refPropt_name)})
-            state.copy_fromState(state_at_refPropt)
-        except NeedsExtrapolationError:
-            pass
 
-    # Apply ideal gas law to calculate or verify properties
+        if state_at_refPropt.empty:
+            try:
+                # Interpolate in mpDF - ideal gas properties table
+                interpolatedState = interpolate_inIGasTable(mpDF=fluid.mpDF, interpolate_by=refPropt_name, interpolate_at=getattr(state, refPropt_name))
+                state.copy_fromState(interpolatedState)
+            except NeedsExtrapolationError:
+                pass
+
+    # In case the table look-up determines T from another T-dependent property, can use ideal gas law to figure out P or mu if they were unknown
+    # TODO: Try ideal gas law again only if changes have been made
     apply_IGasLaw(state, fluid.R)
     return state
 
 
 def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out: StateIGas, fluid: 'IdealGas'):
-    """Infers properties of state_out based on an isentropic process from state_in."""
+    """Infers P/T/mu properties of state_out based on an isentropic process from state_in."""
     states = [state_in, state_out]
     [state_1, state_2] = states  # internal renaming of in/out to 1/2
+
+    for state in states:
+        fullyDefine_StateIGas(state, fluid)
 
     check_P_defined = lambda: [state.hasDefined('P') for state in states]
     check_T_defined = lambda: [state.hasDefined('T') for state in states]
     T_defined = check_T_defined()
     P_defined = check_P_defined()
+    mu_defined = [state.hasDefined('mu') for state in states]
 
-    if constant_c:
-        mu_defined = [state.hasDefined('mu') for state in states]
+    if constant_c:  # Analysis with constant specific heats, c
 
         if all(T_defined):  # T1 and T2 known
 
@@ -505,10 +530,10 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
                 assert any(P_defined)  # either P1 or P2 should be available now
 
                 if P_defined[0]:  # P1 is defined, P2 is to be found
-                    state_2.P = ( (state_1.P)**((fluid.k - 1)/fluid.k) * (state_2.T / state_1.T) )**(fluid.k/(fluid.k - 1))
+                    state_2.P = ( (state_1.P)**((fluid.k - 1)/fluid.k) * (state_2.T / state_1.T) ) ** (fluid.k/(fluid.k - 1))
                     apply_IGasLaw(state_2, fluid.R)
                 else:  # P2 is defined, P1 is to be found
-                    state_1.P = ((state_2.P)**((fluid.k - 1)/fluid.k) * (state_1.T / state_2.T)) ** (fluid.k/(fluid.k - 1))
+                    state_1.P = ( (state_2.P)**((fluid.k - 1)/fluid.k) * (state_1.T / state_2.T) ) ** (fluid.k/(fluid.k - 1))
                     apply_IGasLaw(state_1, fluid.R)
 
         elif all(P_defined):  # but now all(T_defined), would have otherwise entered first if block
@@ -546,27 +571,44 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
                 assert any(T_defined)
 
                 if T_defined[0]:  # T1 known, find T2
-                    state_2.T = state_1.T * (state_1.mu / state_2.mu)**(fluid.k - 1)
+                    state_2.T = state_1.T * (state_1.mu / state_2.mu) ** (fluid.k - 1)
                     apply_IGasLaw(state_2, fluid.R)
                 else:  # T2 known, find T1
-                    state_1.T = state_2.T / (state_1.mu / state_2.mu)**(fluid.k - 1)
+                    state_1.T = state_2.T / (state_1.mu / state_2.mu) ** (fluid.k - 1)
                     apply_IGasLaw(state_1, fluid.R)
 
     else:  # Variable specific heat analysis
-
         check_P_r_defined = lambda: [state.hasDefined('P_r') for state in states]
         P_r_defined = check_P_r_defined()
 
-        if all(P_defined):
+        check_mu_r_defined = lambda: [state.hasDefined('mu_r') for state in states]
+        mu_r_defined = check_mu_r_defined()
 
+        if all(P_defined):  # P1 & P2 known
+            if not all(T_defined):  # One T is missing
+                if any(P_r_defined): # If P_r is known, T can be found from table look-up.
+                    assert not all(P_r_defined)
+                    # If we are here, one state should be missing its P_r so that its temperature is unknown
+                    # Otherwise, if P_r was known, table interpolation would have determined T
+                    # Ensure P_r of the state with unknown T is available.
+                    if P_r_defined[0]:  # P_r_1 (& T1) known, P1 & P2 known, find P_r_2, then T2 can be found from table.
+                        state_2.P_r = state_1.P_r * (state_2.P / state_1.P)
+                        fullyDefine_StateIGas(state_2, fluid)  # With P_r_2 known, T2 can be found
+                    else:  # P_r_2 (& T2) known, P1 & P2 known, find P_r_1, then T1 can be found from table.
+                        state_1.P_r = state_2.P_r*(state_1.P/state_2.P)
+                        fullyDefine_StateIGas(state_1, fluid)  # With P_r_1 known, T1 can be found
 
-            pass
-
-        elif all(T_defined):
-            pass
-
-        pass
-
+        elif all(mu_defined):  # mu1 & mu2 known
+            if not all(T_defined):  # One T is missing
+                if any(mu_r_defined):
+                    assert not all(mu_r_defined)
+                    # Ensure mu_r of the state with unknown T is available.
+                    if mu_r_defined[0]:  # mu_r_1 (& T1) known, mu1 & mu2 known, find mu_r_2, then T2 can be found from table.
+                        state_2.mu_r = state_1.mu_r * (state_2.mu / state_1.mu)
+                        fullyDefine_StateIGas(state_2, fluid)  # With P_r_2 known, T2 can be found
+                    else:  # mu_r_2 (& T2) known, mu1 & mu2 known, find mu_r_1, then T1 can be found from table.
+                        state_1.mu_r = state_2.mu_r * (state_1.P / state_2.P)
+                        fullyDefine_StateIGas(state_1, fluid)  # With P_r_1 known, T1 can be found
 
 
 def apply_isentropicEfficiency(constant_c: bool, state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, fluid: 'Fluid'):

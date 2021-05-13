@@ -7,7 +7,7 @@ from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
 from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, Compressor, IGasCompressor, Combustor, ClosedFWHeater, MixingChamber, OpenFWHeater, Trap, HeatExchanger, ReheatBoiler, Intercooler
 from Models.Fluids import Fluid, IdealGas
-from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
+from Methods.ThprOps import fullyDefine_StatePure, fullyDefine_StateIGas
 
 from Utilities.FileOps import read_Excel_DF, process_MaterialPropertyDF
 from Utilities.Numeric import isWithin
@@ -425,7 +425,6 @@ class TestFlows(unittest.TestCase):
         flow_c.items = [turbine,
                         state_6 := StatePure(),
                         mixc]
-
 
 
         cycle = Cycle()

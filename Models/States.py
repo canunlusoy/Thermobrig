@@ -137,6 +137,11 @@ class StateIGas(StatePure):
     _properties_variable_c = ['P_r', 'mu_r', 's0']  # T-dependent properties used in analysis with variable specific heats
     _properties_all = _properties_regular + _properties_variable_c
 
+    _properties_Tdependent = ['T', 'P_r', 'mu_r', 'h', 'u', 's0']
+
+    def __repr__(self):
+        return 'StateIGas(P:{0}, T:{1}, mu:{2}, h:{3}, u:{4}, P_r:{5}, mu_r:{6}, s0:{7})'.format(self.P, self.T, self.mu, self.h, self.u, self.P_r, self.mu_r, self.s0)
+
     def isFullyDefined(self, constant_c: bool = True, consider_mixProperties: bool = True) -> bool:
         propertyList = self._properties_regular
         if not constant_c:  # if constant c analysis is made, does not care if the variable-c analysis parameters are defined or not

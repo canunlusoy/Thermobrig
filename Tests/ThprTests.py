@@ -4,7 +4,7 @@ from typing import Dict, Union
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
-from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
+from Methods.ThprOps import fullyDefine_StatePure, fullyDefine_StateIGas, apply_isentropicIGasProcess
 
 from Utilities.FileOps import read_Excel_DF, process_MaterialPropertyDF
 from Utilities.Numeric import isWithin
@@ -20,7 +20,7 @@ R134a_mpDF = process_MaterialPropertyDF(dataFile)
 dataFile = read_Excel_DF(dataFile_path, worksheet='Air', headerRow=1, skipRows=[0])
 air_mpDF = process_MaterialPropertyDF(dataFile)
 
-air = IdealGas(air_mpDF, R=0.2870)
+air = IdealGas(air_mpDF, R=287)
 
 class TestStateDefineMethods_Water(unittest.TestCase):
 
@@ -573,18 +573,37 @@ class TestStateDefineMethods_Air(unittest.TestCase):
     def test_air_01(self):
         # From MECH2201 - A10 Q2
 
-        s1 = define_StateIGas(StateIGas(P=97, T=70), air)
+        s1 = fullyDefine_StateIGas(StateIGas(P=97, T=70), air)
         self.CompareResults(s1, {'mu': 1.015}, 3)
 
-        s2 = define_StateIGas(StateIGas(T=(1136.86 - 273), mu=0.0507), air)
+        s2 = fullyDefine_StateIGas(StateIGas(T=(1136.86 - 273), mu=0.0507), air)
         self.CompareResults(s2, {'P': 6435}, 3)
 
-        s3 = define_StateIGas(StateIGas(P=6435, T=(2046.35-273.15)), air)
+        s3 = fullyDefine_StateIGas(StateIGas(P=6435, T=(2046.35 - 273.15)), air)
         self.CompareResults(s3, {'mu': 0.09126}, 3)
 
 
 class TestIGasIsentropicRelations(unittest.TestCase):
 
-    def test_air_01(self):
+    def CompareResults(self, testState: StatePure, expected: Dict, ptolerance: Union[float, int]):
+        print('\n')
+        for parameter in expected:
+            assert hasattr(testState, parameter)
+            self.assertTrue(isWithin(getattr(testState, parameter), ptolerance, '%', expected[parameter]))
+            print('Expected: {0}'.format(expected[parameter]))
+            print('Received: {0}'.format(getattr(testState, parameter)))
 
-        pass
+    def test_air_01(self):
+        s1 = StateIGas(P=100000, T=30, mu=0.45/0.517)
+        s2 = StateIGas(P=1100000)
+
+        apply_isentropicIGasProcess(constant_c=False, fluid=air, state_in=s1, state_out=s2)
+        self.CompareResults(s1, {'P_r': 1.4356}, 3)
+        self.CompareResults(s1, {'mu_r': 606.08}, 3)
+        self.CompareResults(s2, {'P_r': 15.9712}, 3)
+        self.CompareResults(s2, {'T': 594.96-273}, 3)
+        self.CompareResults(s2, {'mu_r': 108.22}, 3)
+        self.CompareResults(s2, {'u': 430.94}, 3)
+
+
+

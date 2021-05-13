@@ -2,7 +2,7 @@ from pandas import DataFrame
 
 from typing import Union, List
 
-from Methods.ThprOps import fullyDefine_StatePure, define_StateIGas
+from Methods.ThprOps import fullyDefine_StatePure, fullyDefine_StateIGas
 from Models.States import StatePure
 from Utilities.Exceptions import NeedsExtrapolationError
 
@@ -34,7 +34,7 @@ class IdealGas(Fluid):
     def __init__(self, mpDF: DataFrame, R: float, k: float = float('nan')):
 
         super(IdealGas, self).__init__(mpDF)
-        self.defFcn = define_StateIGas
+        self.defFcn = fullyDefine_StateIGas
         self.R = R
         self.k = k
 
