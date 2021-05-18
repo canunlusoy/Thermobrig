@@ -20,7 +20,7 @@ R134a_mpDF = process_MaterialPropertyDF(dataFile)
 dataFile = read_Excel_DF(dataFile_path, worksheet='Air', headerRow=1, skipRows=[0])
 air_mpDF = process_MaterialPropertyDF(dataFile)
 
-air = IdealGas(air_mpDF, R=287)
+air = IdealGas(air_mpDF, R=0.287, k=1.4)
 
 class TestStateDefineMethods_Water(unittest.TestCase):
 
@@ -594,8 +594,9 @@ class TestIGasIsentropicRelations(unittest.TestCase):
             print('Received: {0}'.format(getattr(testState, parameter)))
 
     def test_air_01(self):
-        s1 = StateIGas(P=100000, T=30, mu=0.45/0.517)
-        s2 = StateIGas(P=1100000)
+        # MECH2201 - A10 - Q1
+        s1 = StateIGas(P=100, T=30, mu=0.45/0.517)
+        s2 = StateIGas(P=1100)
 
         apply_isentropicIGasProcess(constant_c=False, fluid=air, state_in=s1, state_out=s2)
         self.CompareResults(s1, {'P_r': 1.4356}, 3)
@@ -604,6 +605,30 @@ class TestIGasIsentropicRelations(unittest.TestCase):
         self.CompareResults(s2, {'T': 594.96-273}, 3)
         self.CompareResults(s2, {'mu_r': 108.22}, 3)
         self.CompareResults(s2, {'u': 430.94}, 3)
+
+    def test_air_02(self):
+        # MECH2201 - A10 - Q2
+
+        s1 = StateIGas(P=97, T=70)
+        fullyDefine_StateIGas(s1, air)
+        self.CompareResults(s1, {'mu': 1.015}, 3)
+
+        s2 = StateIGas(mu=s1.mu/20)
+
+        # Tests finding T of state using ratio of mu1/mu2
+        apply_isentropicIGasProcess(constant_c=True, fluid=air, state_in=s1, state_out=s2)
+        self.CompareResults(s2, {'T': 1136.86-273, 'P': 6435}, 3)
+
+        s3 = StateIGas(P=6435, T=2046.35-273)
+        fullyDefine_StateIGas(s3, air)
+        self.CompareResults(s3, {'mu': 0.09126}, 3)
+
+        s4 = StateIGas(mu=20*s2.mu)
+        apply_isentropicIGasProcess(constant_c=True, fluid=air, state_in=s3, state_out=s4)
+        self.CompareResults(s4, {'T': 781.05-273}, 3)
+
+
+
 
 
 

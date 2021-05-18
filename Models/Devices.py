@@ -1,5 +1,5 @@
 
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from Models.States import StatePure
 from Methods.ThprOps import apply_isentropicEfficiency
@@ -139,7 +139,12 @@ class Boiler(HeatDevice):
 
 
 class Intercooler(HeatDevice):
-    pass
+    def __init__(self, coolTo: Union[float, str], infer_constant_P: bool = True):
+        self.coolTo = coolTo
+        super(Intercooler, self).__init__(infer_constant_P)
+
+    def set_exitTemperature(self, T: float):
+        self.state_out.set_or_verify({'T': T})
 
 
 class ReheatBoiler(HeatDevice):
@@ -214,6 +219,13 @@ class ReheatBoiler(HeatDevice):
             if forFlow is None or all(line_endState.flow is forFlow for line_endState in line_endStates):
                 toReturn += [ (1, (line_endStates[1], 'h')), (-1, (line_endStates[0], 'h')) ]
         return toReturn
+
+
+class GasReheater(HeatDevice):
+    def __init__(self, heatTo: Union[float, str], infer_constant_lineP: bool = True):
+        self.heatTo = heatTo
+        super(GasReheater, self).__init__(infer_constant_lineP)
+
 
 class Condenser(HeatDevice):
     def __init__(self):

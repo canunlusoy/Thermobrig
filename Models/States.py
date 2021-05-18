@@ -162,14 +162,14 @@ class StateIGas(StatePure):
         if self.hasDefined(['P', 'mu']):
             # if P & mu defined (both LHS terms), T can be found, assuming R is known
             definable = True
-        elif self.hasDefined('T') and any(self.hasDefined(property) for property in ['P', 'mu']):
+        elif any(self.hasDefined(property) for property in self._properties_Tdependent) and any(self.hasDefined(property) for property in ['P', 'mu']):
             # if T is defined, and one of P or mu is defined, the other unknown LHS term can be found, assuming R is known
             definable = True
 
         # An alternative method to check if isFullyDefinable is to check if number of unknowns among P, T, mu is 1. This method here is more descriptive so leaving as is.
         return definable
 
-class FlowPoint(StatePure):
+class FlowPoint_Pure(StatePure):
 
     def __init__(self, baseState: StatePure, flow: 'Flow'):
         """Class for flow-aware states. Normally, states are unaware / independent of flows and are simply data containers for thermodynamic information. Flow points represent **points in flows**,
@@ -262,6 +262,120 @@ class FlowPoint(StatePure):
     def set(self, setDict: Dict):
         """Sets values of the properties to the values provided in the dictionary."""
         
+        for parameterName in setDict:
+            if parameterName in self._properties_all:
+                setattr(self, parameterName, setDict[parameterName])
+
+
+class FlowPoint_IGas(StateIGas):
+
+    def __init__(self, baseState: StateIGas, flow: 'Flow'):
+        """Class for flow-aware states. Normally, states are unaware / independent of flows and are simply data containers for thermodynamic information. Flow points represent **points in flows**,
+        and hence allow access to flow data through the reference to the flow, and contain the state information inherently, in the same way as a state object."""
+
+        self.baseState = baseState
+        self.flow = flow
+
+    # Custom __eq__ method - the default version does not take flow of state into account. Overriding __eq__ could have been avoided by simpler use of dataclass but due to property (getter/setter) based
+    # nature of this dataclass, I used this method.
+
+    def __members(self):
+        return (self.baseState, self.flow)
+
+    def __eq__(self, other):
+        if isinstance(other, StatePure):
+            return all(getattr(self, property) == getattr(other, property) for property in self._properties_all) and (self.flow is other.flow)
+        else:
+            return False
+
+    def __hash__(self):  # if __eq__ is overridden, __hash__ also needs to be overridden.
+        return hash(self.__members())
+
+    #
+
+    def get_P(self):
+        return getattr(self.baseState, 'P')
+
+    def set_P(self, value):
+        setattr(self.baseState, 'P', value)
+
+    P = property(fget=get_P, fset=set_P)
+
+    def get_T(self):
+        return getattr(self.baseState, 'T')
+
+    def set_T(self, value):
+        setattr(self.baseState, 'T', value)
+
+    T = property(fget=get_T, fset=set_T)
+
+    def get_h(self):
+        return getattr(self.baseState, 'h')
+
+    def set_h(self, value):
+        setattr(self.baseState, 'h', value)
+
+    h = property(fget=get_h, fset=set_h)
+
+    def get_u(self):
+        return getattr(self.baseState, 'u')
+
+    def set_u(self, value):
+        setattr(self.baseState, 'u', value)
+
+    u = property(fget=get_u, fset=set_u)
+
+    def get_mu(self):
+        return getattr(self.baseState, 'mu')
+
+    def set_mu(self, value):
+        setattr(self.baseState, 'mu', value)
+
+    mu = property(fget=get_mu, fset=set_mu)
+
+    def get_s(self):
+        return getattr(self.baseState, 's')
+
+    def set_s(self, value):
+        setattr(self.baseState, 's', value)
+
+    s = property(fget=get_s, fset=set_s)
+
+    def get_x(self):
+        return getattr(self.baseState, 'x')
+
+    def set_x(self, value):
+        setattr(self.baseState, 'x', value)
+
+    x = property(fget=get_x, fset=set_x)
+
+    def get_s0(self):
+        return getattr(self.baseState, 's0')
+
+    def set_s0(self, value):
+        setattr(self.baseState, 's0', value)
+
+    s0 = property(fget=get_s0, fset=set_s0)
+
+    def get_P_r(self):
+        return getattr(self.baseState, 'P_r')
+
+    def set_P_r(self, value):
+        setattr(self.baseState, 'P_r', value)
+
+    P_r = property(fget=get_P_r, fset=set_P_r)
+
+    def get_mu_r(self):
+        return getattr(self.baseState, 'mu_r')
+
+    def set_mu_r(self, value):
+        setattr(self.baseState, 'mu_r', value)
+
+    mu_r = property(fget=get_mu_r, fset=set_mu_r)
+
+    def set(self, setDict: Dict):
+        """Sets values of the properties to the values provided in the dictionary."""
+
         for parameterName in setDict:
             if parameterName in self._properties_all:
                 setattr(self, parameterName, setDict[parameterName])

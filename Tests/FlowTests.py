@@ -5,7 +5,8 @@ from typing import Dict, Union
 from Models.Cycles import Cycle
 from Models.Flows import Flow, IdealGasFlow
 from Models.States import StatePure, StateIGas
-from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, Compressor, IGasCompressor, Combustor, ClosedFWHeater, MixingChamber, OpenFWHeater, Trap, HeatExchanger, ReheatBoiler, Intercooler
+from Models.Devices import Device, Turbine, Boiler, Condenser, Pump, Compressor, IGasCompressor, Combustor, ClosedFWHeater, \
+    MixingChamber, OpenFWHeater, Trap, HeatExchanger, ReheatBoiler, Intercooler, GasReheater
 from Models.Fluids import Fluid, IdealGas
 from Methods.ThprOps import fullyDefine_StatePure, fullyDefine_StateIGas
 
@@ -1062,23 +1063,29 @@ class TestFlows(unittest.TestCase):
     def test_flows_air_01(self):
         # MECH2201 - A11-3
 
-        flow_a = Flow(air)
-        flow_a.items = [state_1 := StateIGas(P=150000, T=20),
-                        comp1 := IGasCompressor(eta_isentropic=0.82),
-                        state_2 := StateIGas(),
-                        intercooler := Intercooler(),
+        flow_a = Flow(air, massFlowFraction=1)
+        flow_a.items = [state_1 := StateIGas(P=150, T=20),
+                        comp1 := Compressor(eta_isentropic=0.82),
+                        state_2 := StateIGas(P=300),
+                        intercooler := Intercooler(coolTo='ideal'),
                         state_3 := StateIGas(T=20),
-                        comp2 := IGasCompressor(eta_isentropic=0.82),
-                        state_4 := StateIGas(),
+                        comp2 := Compressor(eta_isentropic=0.82),
+                        state_4 := StateIGas(P=600),
                         regenerator := HeatExchanger(),
                         state_5 := StateIGas(),
                         combustor := Combustor(),
                         state_6 := StateIGas(T=750),
                         turb1 := Turbine(eta_isentropic=0.82),
-                        state_7 := StateIGas(),
-                        reheat := Boiler(),
+                        state_7 := StateIGas(P=300),
+                        reheat := GasReheater(heatTo='ideal'),
                         state_8 := StateIGas(T=750),
                         turb2 := Turbine(eta_isentropic=0.82),
                         state_9 := StateIGas(),
                         regenerator,
-                        state_10 := StateIGas()]
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+        print(3)
+        print(4)

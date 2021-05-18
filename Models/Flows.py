@@ -7,7 +7,7 @@ from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWork
 
 from Models.States import StatePure, StateIGas
 from Models.Fluids import Fluid, IdealGas
-from Models.Devices import Device, WorkDevice, HeatDevice, MixingChamber, HeatExchanger, Trap, Turbine, Boiler, ReheatBoiler
+from Models.Devices import Device, WorkDevice, HeatDevice, MixingChamber, HeatExchanger, Trap, Turbine, Boiler, ReheatBoiler, Intercooler, Compressor, GasReheater
 
 from Utilities.Numeric import isNumeric, isWithin
 from Utilities.PrgUtilities import twoList, LinearEquation
@@ -88,6 +88,11 @@ class Flow:
             elif includeNone:
                 surroundingItems.append(None)
         return surroundingItems
+
+    def get_itemRelative(self, item, relativePosition: int):
+        """Returns the flow item given by its position relative to the specified item. relativePosition of -1 returns the flow item prior to the provided item."""
+        itemIndex = self.items.index(item)
+        return self.items[itemIndex + relativePosition]
 
     def solve(self):
         self._define_definableStates()
@@ -177,6 +182,22 @@ class Flow:
                 if device._infer_fixed_exitT:
                     device.infer_fixed_exitT()
 
+            elif isinstance(device, Intercooler):
+                if device.coolTo == 'ideal':  # Cool to the temperature of the compressor inlet state
+                    assert isinstance((compressorBefore := self.get_itemRelative(device, -2)), Compressor)  # before intercooler, there should be compressor exit state, and then a compressor
+                    device.state_out.set_or_verify({'T': compressorBefore.state_in.T})
+                else:  # Cool to specified temperature
+                    assert isNumeric(device.coolTo)
+                    device.state_out.set_or_verify({'T': device.coolTo})
+
+            elif isinstance(device, GasReheater):
+                if device.heatTo == 'ideal':  # Heat to the temperature of the turbine inlet state
+                    assert isinstance((turbineBefore := self.get_itemRelative(device, -2)), Turbine)
+                    device.state_out.set_or_verify({'T': turbineBefore.state_in.T})
+                else:  # Heat to specified temperature
+                    assert isNumeric(device.heatTo)
+                    device.state_out.set_or_verify({'T': device.heatTo})
+
         elif isinstance(device, HeatExchanger):
             # Setting end state pressures along the same line if pressures is assumed constant along each line
             if device._infer_constant_linePressures:
@@ -226,14 +247,12 @@ class Flow:
 
         for state_out in states_afterDevice:
 
-            if device.state_in.hasDefined('s') and device.state_in.hasDefined('h') and state_out.hasDefined('P'):
+            if not isinstance(self.workingFluid, IdealGas) and (device.state_in.hasDefined('h') and state_out.hasDefined('P')):  # Used to check if state_in also hadNumeric 's'
 
                 # going to overwrite state_out - TODO: Need to copy in the first time, then verify in subseqs
                 state_out.copy_fromState(apply_isentropicEfficiency(constant_c=self.constant_c,
-                                                                    state_in=device.state_in,
-                                                                    state_out_ideal=state_out,
-                                                                    eta_isentropic=device.eta_isentropic,
-                                                                    fluid=self.workingFluid))
+                                                                    state_in=device.state_in, state_out_ideal=state_out,
+                                                                    eta_isentropic=device.eta_isentropic, fluid=self.workingFluid))
                 # assert state_out.isFullyDefined()
 
             # if self._calculate_h_forIncompressibles and device.state_in.x <= 0 and device.state_in.hasDefined('P'):
@@ -241,6 +260,15 @@ class Flow:
 
                 # # overwrite h with calculated value
                 # state_out.h = device.state_in.h + device.state_in.mu * (state_out.P - device.state_in.P)  # W = integral(mu * dP) for reversible steady flow work, mu is constant for incompressibles
+
+            elif isinstance(self.workingFluid, IdealGas):
+                state_out_ideal = StateIGas()
+                state_out_ideal.copy_fromState(state_out)
+                apply_isentropicIGasProcess(constant_c=self.constant_c, fluid=self.workingFluid, state_in=device.state_in, state_out=state_out_ideal)
+                state_out.copy_fromState(apply_isentropicEfficiency(constant_c=self.constant_c,
+                                                                    state_in=device.state_in, state_out_ideal=state_out_ideal,
+                                                                    eta_isentropic=device.eta_isentropic, fluid=self.workingFluid))
+
 
     @property
     def net_sWorkExtracted(self):

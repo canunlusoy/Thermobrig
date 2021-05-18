@@ -3,7 +3,7 @@ from pandas import DataFrame
 from typing import Union, List
 
 from Methods.ThprOps import fullyDefine_StatePure, fullyDefine_StateIGas
-from Models.States import StatePure
+from Models.States import StatePure, StateIGas
 from Utilities.Exceptions import NeedsExtrapolationError
 
 class Fluid:
@@ -15,6 +15,8 @@ class Fluid:
 
         self.k = float('nan')
         self.cp = float('nan')
+
+        self.stateClass = StatePure  # States of this fluid should be StatePure objects
 
     def define(self, state: StatePure):
         """Wrapper around the state definition function to directly include the fluid's mpDF."""
@@ -38,6 +40,9 @@ class IdealGas(Fluid):
         self.R = R
         self.k = k
 
+        self.stateClass = StateIGas  # States of this fluid should be StateIGas objects
+
         assert 'P' not in mpDF.mp.availableProperties  # for an ideal gas, P is independent of others
 
-
+    def define(self, state: StateIGas):
+        return self.defFcn(state, self)

@@ -472,12 +472,13 @@ def apply_IGasLaw(state: StateIGas, R: float):
         print(str.format('apply_IGasLaw: Insufficient data - cannot apply law to find missing properties {0}', IGasLaw_missingProperties))
 
 
-def fullyDefine_StateIGas(state: StateIGas, fluid: 'IdealGas'):
+def fullyDefine_StateIGas(state: StateIGas, fluid: 'IdealGas') -> StateIGas:
     """Tries to fill in the properties of an ideal gas state by applying the ideal gas law and looking up state on the provided mpDF."""
     apply_IGasLaw(state, fluid.R)
 
     # Do an ideal gas table look-up after applying ideal gas law above. The process above may first determine T and only then this table look-up can be done.
-    if len(available_TDependentProperties := [propertyName for propertyName in state.get_asList_definedPropertiesNames() if propertyName in fluid.mpDF.mp.availableProperties]) >= 1:
+    # if len(available_TDependentProperties := [propertyName for propertyName in state.get_asList_definedPropertiesNames() if propertyName in fluid.mpDF.mp.availableProperties]) >= 1:
+    if len(available_TDependentProperties := [propertyName for propertyName in StateIGas._properties_Tdependent if state.hasDefined(propertyName)]) >= 1:
         # Get tabulated T-dependent properties
         refPropt_name = available_TDependentProperties[0]
         state_at_refPropt = fluid.mpDF.cq.cQuery({refPropt_name: getattr(state, refPropt_name)})  # Try finding exact state on mpDF
@@ -515,7 +516,7 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
         if all(T_defined):  # T1 and T2 known
 
             if all(P_defined) and all(mu_defined):  # P1 & P2 and mu1 & mu2 are all known, verify
-                assert (state_2.T / state_1.T) == (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k), str.format('apply_isentropicIGasProcess: constant c analysis - In-out states fully defined, isentropic process relation does not hold between states\n{0}\n{1}', state_1, state_2)
+                assert (to_Kelvin(state_2.T) / to_Kelvin(state_1.T)) == (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k), str.format('apply_isentropicIGasProcess: constant c analysis - In-out states fully defined, isentropic process relation does not hold between states\n{0}\n{1}', state_1, state_2)
 
             elif not any(P_defined) or not any(mu_defined):  # None among P1 & P2 and mu1 & mu2 are known - cannot do anything
                 print(str.format('apply_isentropicIGasProcess: constant c analysis - Insufficient data, cannot apply relation between states\n{0}\n{1}', state_1, state_2))
@@ -530,10 +531,10 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
                 assert any(P_defined)  # either P1 or P2 should be available now
 
                 if P_defined[0]:  # P1 is defined, P2 is to be found
-                    state_2.P = ( (state_1.P)**((fluid.k - 1)/fluid.k) * (state_2.T / state_1.T) ) ** (fluid.k/(fluid.k - 1))
+                    state_2.P = ( (state_1.P)**((fluid.k - 1)/fluid.k) * (to_Kelvin(state_2.T) / to_Kelvin(state_1.T)) ) ** (fluid.k/(fluid.k - 1))
                     apply_IGasLaw(state_2, fluid.R)
                 else:  # P2 is defined, P1 is to be found
-                    state_1.P = ( (state_2.P)**((fluid.k - 1)/fluid.k) * (state_1.T / state_2.T) ) ** (fluid.k/(fluid.k - 1))
+                    state_1.P = ( (state_2.P)**((fluid.k - 1)/fluid.k) * (to_Kelvin(state_1.T) / to_Kelvin(state_2.T)) ) ** (fluid.k/(fluid.k - 1))
                     apply_IGasLaw(state_1, fluid.R)
 
         elif all(P_defined):  # but now all(T_defined), would have otherwise entered first if block
@@ -550,15 +551,15 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
                 assert any(T_defined)
 
                 if T_defined[0]:  # T1 known, find T2
-                    state_2.T = state_1.T * (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k)
+                    state_2.T = to_deg_C(to_Kelvin(state_1.T * (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k)))
                     apply_IGasLaw(state_2, fluid.R)
                 else:  # T2 known, find T1
-                    state_1.T = state_2.T / (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k)
+                    state_1.T = to_deg_C(to_Kelvin(state_2.T / (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k)))
                     apply_IGasLaw(state_1, fluid.R)
 
         elif all(mu_defined):
 
-            if not any(T_defined) or any(mu_defined):  # None among T1 & T2 and P1 & P2 are known - cannot do anything
+            if not any(T_defined) or not any(mu_defined):  # None among T1 & T2 and P1 & P2 are known - cannot do anything
                 print(str.format('apply_isentropicIGasProcess: constant c analysis - Insufficient data, cannot apply relation between states\n{0}\n{1}', state_1, state_2))
 
             else:
@@ -571,10 +572,10 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
                 assert any(T_defined)
 
                 if T_defined[0]:  # T1 known, find T2
-                    state_2.T = state_1.T * (state_1.mu / state_2.mu) ** (fluid.k - 1)
+                    state_2.T = to_deg_C(to_Kelvin(state_1.T) * (state_1.mu / state_2.mu) ** (fluid.k - 1))
                     apply_IGasLaw(state_2, fluid.R)
                 else:  # T2 known, find T1
-                    state_1.T = state_2.T / (state_1.mu / state_2.mu) ** (fluid.k - 1)
+                    state_1.T = to_deg_C(to_Kelvin(state_2.T / (state_1.mu / state_2.mu) ** (fluid.k - 1)))
                     apply_IGasLaw(state_1, fluid.R)
 
     else:  # Variable specific heat analysis
@@ -614,20 +615,22 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
 def apply_isentropicEfficiency(constant_c: bool, state_in: StatePure, state_out_ideal: StatePure, eta_isentropic: float, fluid: 'Fluid'):
     """Returns a new state_out based on the provided one, with all fields filled out based on the isentropic efficiency of the process between the state_in and state_out."""
 
-    if not constant_c:
+    if not constant_c:  # Variable c analysis - will use tabulated data for fluids other than ideal gases
         assert state_out_ideal.hasDefined('P')
-        state_out_ideal.set_or_verify({'s': state_in.s})
-        try:
-            state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
-        except NeedsExtrapolationError:
-            # For pumps dealing with subcooled liquids no data may be available. w = mu*dP relation can be used to get at least the h.
-            if all(state.x <= 0 for state in [state_in, state_out_ideal]):
-                apply_incompressibleWorkRelation(state_in=state_in, state_out=state_out_ideal)
+
+        if fluid.stateClass is StatePure:  # if not an IGas flow - ideally should check if fluid is IGas but cannot as ThprOps do not know fluids.
+            state_out_ideal.set_or_verify({'s': state_in.s})
+            try:
+                state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
+            except NeedsExtrapolationError:
+                # For pumps dealing with subcooled liquids no data may be available. w = mu*dP relation can be used to get at least the h.
+                if all(state.x <= 0 for state in [state_in, state_out_ideal]):
+                    apply_incompressibleWorkRelation(state_in=state_in, state_out=state_out_ideal)
 
         assert all(state.hasDefined('h') for state in [state_in, state_out_ideal])  # state_in & state_out should have *h* defined
         work_ideal = state_out_ideal.h - state_in.h
 
-        state_out_actual = StatePure(P=state_out_ideal.P)
+        state_out_actual = fluid.stateClass(P=state_out_ideal.P)
 
         if work_ideal >= 0:
             # work provided to flow from device -> eta_s = w_ideal / w_actual
@@ -645,7 +648,7 @@ def apply_isentropicEfficiency(constant_c: bool, state_in: StatePure, state_out_
         assert all(state.hasDefined('T') for state in [state_in, state_out_ideal])
         work_ideal = fluid.cp*(state_out_ideal.T - state_in.T)
 
-        state_out_actual = state_out_ideal.__class__().copy_fromState(state_out_ideal)  # accessing __class__ like this, to use the same class as state_out - could be StatePure or StateIGas
+        state_out_actual = fluid.stateClass().copy_fromState(state_out_ideal)  # accessing __class__ like this, to use the same class as state_out - could be StatePure or StateIGas
 
         if work_ideal >= 0:
             work_actual = work_ideal / eta_isentropic
