@@ -467,7 +467,7 @@ def apply_IGasLaw(state: StateIGas, R: float):
             state.T = to_deg_C(state.P * state.mu / R)
     elif number_ofMissingProperties == 0:
         # If all properties available, check consistency / compliance with the law
-        assert isApproximatelyEqual(to_Kelvin(state.T), (state.P * state.mu / R), 3), 'DataError InputError: Provided / inferred state properties not compliant with ideal gas law.'
+        assert isApproximatelyEqual(to_Kelvin(state.T), (state.P * state.mu / R), 3), 'DataError InputError: Provided / inferred state properties not compliant with ideal gas law.\n{0}'.format(state)
     elif number_ofMissingProperties == 2:
         print(str.format('apply_IGasLaw: Insufficient data - cannot apply law to find missing properties {0}', IGasLaw_missingProperties))
 
@@ -489,6 +489,7 @@ def fullyDefine_StateIGas(state: StateIGas, fluid: 'IdealGas') -> StateIGas:
                 interpolatedState = interpolate_inIGasTable(mpDF=fluid.mpDF, interpolate_by=refPropt_name, interpolate_at=getattr(state, refPropt_name))
                 state.copy_fromState(interpolatedState)
             except NeedsExtrapolationError:
+                print('fullyDefine_StateIGas: Extrapolation needed to find state at {0}={1}'.format(refPropt_name, getattr(state, refPropt_name)))
                 pass
 
     # In case the table look-up determines T from another T-dependent property, can use ideal gas law to figure out P or mu if they were unknown
@@ -539,7 +540,7 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
 
         elif all(P_defined):  # but now all(T_defined), would have otherwise entered first if block
 
-            if not any(T_defined) or any(mu_defined):  # None among T1 & T2 and mu1 & mu2 are known - cannot do anything
+            if not any(T_defined) or not any(mu_defined):  # None among T1 & T2 and mu1 & mu2 are known - cannot do anything
                 print(str.format('apply_isentropicIGasProcess: constant c analysis - Insufficient data, cannot apply relation between states\n{0}\n{1}', state_1, state_2))
 
             else:
@@ -551,10 +552,12 @@ def apply_isentropicIGasProcess(constant_c: bool, state_in: StateIGas, state_out
                 assert any(T_defined)
 
                 if T_defined[0]:  # T1 known, find T2
-                    state_2.T = to_deg_C(to_Kelvin(state_1.T * (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k)))
+                    state_2.T = to_deg_C( to_Kelvin(state_1.T) * (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k) )
+                    # state_2.mu = float('nan')  # reset mu - needs to be recalculated - assuming T & P correct
                     apply_IGasLaw(state_2, fluid.R)
                 else:  # T2 known, find T1
-                    state_1.T = to_deg_C(to_Kelvin(state_2.T / (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k)))
+                    state_1.T = to_deg_C( to_Kelvin(state_2.T) / (state_2.P / state_1.P)**((fluid.k - 1)/fluid.k) )
+                    # state_1.mu = float('nan')  # reset mu - needs to be recalculated - assuming T & P correct
                     apply_IGasLaw(state_1, fluid.R)
 
         elif all(mu_defined):
@@ -616,55 +619,54 @@ def apply_isentropicEfficiency(constant_c: bool, state_in: StatePure, state_out_
     """Returns a new state_out based on the provided one, with all fields filled out based on the isentropic efficiency of the process between the state_in and state_out."""
 
     if not constant_c:  # Variable c analysis - will use tabulated data for fluids other than ideal gases
-        assert state_out_ideal.hasDefined('P')
+        if state_out_ideal.hasDefined('P'):
 
-        if fluid.stateClass is StatePure:  # if not an IGas flow - ideally should check if fluid is IGas but cannot as ThprOps do not know fluids.
-            state_out_ideal.set_or_verify({'s': state_in.s})
-            try:
-                state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
-            except NeedsExtrapolationError:
-                # For pumps dealing with subcooled liquids no data may be available. w = mu*dP relation can be used to get at least the h.
-                if all(state.x <= 0 for state in [state_in, state_out_ideal]):
-                    apply_incompressibleWorkRelation(state_in=state_in, state_out=state_out_ideal)
+            if fluid.stateClass is StatePure:  # if not an IGas flow - ideally should check if fluid is IGas but cannot as ThprOps do not know fluids.
+                state_out_ideal.set_or_verify({'s': state_in.s})
+                try:
+                    state_out_ideal.copy_fromState(fluid.define(state_out_ideal))
+                except NeedsExtrapolationError:
+                    # For pumps dealing with subcooled liquids no data may be available. w = mu*dP relation can be used to get at least the h.
+                    if all(state.x <= 0 for state in [state_in, state_out_ideal]):
+                        apply_incompressibleWorkRelation(state_in=state_in, state_out=state_out_ideal)
 
-        assert all(state.hasDefined('h') for state in [state_in, state_out_ideal])  # state_in & state_out should have *h* defined
-        work_ideal = state_out_ideal.h - state_in.h
+            assert all(state.hasDefined('h') for state in [state_in, state_out_ideal])  # state_in & state_out should have *h* defined
+            work_ideal = state_out_ideal.h - state_in.h
 
-        state_out_actual = fluid.stateClass(P=state_out_ideal.P)
+            state_out_actual = fluid.stateClass(P=state_out_ideal.P)
 
-        if work_ideal >= 0:
-            # work provided to flow from device -> eta_s = w_ideal / w_actual
-            work_actual = work_ideal / eta_isentropic
-            state_out_actual.h = work_actual + state_in.h
-        elif work_ideal < 0:
-            # work extracted from flow by device -> eta_s = w_actual / w_ideal
-            work_ideal = abs(work_ideal)
-            work_actual = eta_isentropic * work_ideal
-            state_out_actual.h = state_in.h - work_actual
+            if work_ideal >= 0:  # work provided to flow from device -> eta_s = w_ideal / w_actual
+                work_actual = work_ideal / eta_isentropic
+                state_out_actual.h = work_actual + state_in.h
+            elif work_ideal < 0:  # work extracted from flow by device -> eta_s = w_actual / w_ideal
+                work_ideal = abs(work_ideal)
+                work_actual = eta_isentropic * work_ideal
+                state_out_actual.h = state_in.h - work_actual
 
-        return fluid.defineState_ifDefinable(state_out_actual)
+            return fluid.defineState_ifDefinable(state_out_actual)
 
-    else:  # constant c analysis
-        assert all(state.hasDefined('T') for state in [state_in, state_out_ideal])
-        work_ideal = fluid.cp*(state_out_ideal.T - state_in.T)
+    else:  # Constant c analysis
+        if all(state.hasDefined('T') for state in [state_in, state_out_ideal]):
+            work_ideal = fluid.cp*(state_out_ideal.T - state_in.T)
 
-        state_out_actual = fluid.stateClass().copy_fromState(state_out_ideal)  # accessing __class__ like this, to use the same class as state_out - could be StatePure or StateIGas
+            state_out_actual = fluid.stateClass()
+            state_out_actual.copy_fromState(state_out_ideal)  # accessing __class__ like this, to use the same class as state_out - could be StatePure or StateIGas
 
-        if work_ideal >= 0:
-            work_actual = work_ideal / eta_isentropic
-            state_out_actual.T = (work_actual/fluid.cp) + state_in.T
-        elif work_ideal <= 0:
-            work_ideal = abs(work_ideal)
-            work_actual = eta_isentropic * work_ideal
-            state_out_actual.T = state_in.T - (work_actual/fluid.cp)
+            if work_ideal >= 0:
+                work_actual = work_ideal / eta_isentropic
+                state_out_actual.T = (work_actual/fluid.cp) + state_in.T
+                state_out_actual.mu = float('nan')  # mu of state_out_ideal no longer valid, needs to be recalculated with IGasLaw
+            elif work_ideal <= 0:
+                work_ideal = abs(work_ideal)
+                work_actual = eta_isentropic * work_ideal
+                state_out_actual.T = state_in.T - (work_actual/fluid.cp)
+                state_out_actual.mu = float('nan')  # mu of state_out_ideal no longer valid, needs to be recalculated with IGasLaw
+            return state_out_actual
 
-        return state_out_actual
 
 def apply_incompressibleWorkRelation(state_in: StatePure, state_out: StatePure):
     """Applies the steady flow **reversible** work relation for incompressible states. (h2 - h1 = mu * (P2 - P1))"""
-
     endStates = [state_in, state_out]
-
     # h2 - h1 = mu * (P2 - P1)
     # mu * P2 - mu * P1 - h2 + h1 = 0
 
@@ -676,7 +678,6 @@ def apply_incompressibleWorkRelation(state_in: StatePure, state_out: StatePure):
         sampleState_with_mu = states_with_mu[0]
         for state in [state for state in endStates if state is not sampleState_with_mu]:
             state.set_or_verify({'mu': sampleState_with_mu.mu})
-
 
     workRelation = LinearEquation(LHS=[ ( (state_out, 'mu'), (state_out, 'P') ), (-1, (state_in, 'mu'), (state_in, 'P')), (-1, (state_out, 'h')), (1, (state_in, 'h')) ], RHS=0)
     if workRelation.isSolvable():

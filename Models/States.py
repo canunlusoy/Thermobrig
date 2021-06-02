@@ -7,7 +7,7 @@ from typing import Union, Dict, List
 from Utilities.Numeric import isNumeric, isWithin
 
 
-@dataclass(unsafe_hash=True)
+@dataclass  # TODO: Not hashing as intended. Instances with identical content have same hash.
 class StatePure:
     P: float = float('nan')
     T: float = float('nan')
@@ -20,6 +20,12 @@ class StatePure:
     _properties_regular = ['P', 'T', 'mu', 'h', 'u', 's']  # ordered in preference to use in interpolation
     _properties_mixture = ['x']
     _properties_all = _properties_regular + _properties_mixture
+
+    def __hash__(self):
+        # In previous versions, we had unsafe_hash = True in dataclass decorator. This generated a __hash__ method based on the __eq__ method.
+        # Two equal but non-identical states therefore had the same hash, and therefore caused problems in dictionary keys, observed in LinearEquations.
+        # This overwritten __hash__ method returns a hash based on IDENTITY, not value/contents (__eq__).
+        return hash(id(self))
 
     def hasDefined(self, propertyName: Union[str, List]) -> bool:
         """Returns true if a value for the given property is defined."""
@@ -76,7 +82,7 @@ class StatePure:
             else:
                 missingProperties_inDFRow.append(propertyName)
         if missingProperties_inDFRow != []:
-            print('Initializing state ' + str(self) + ' from DFRow: \n' + str(dfRow),'Properties ' + str(missingProperties_inDFRow) + ' not provided in DataFrame row.')
+            print('Initialized state ' + str(self) + ' from DFRow, properties ' + str(missingProperties_inDFRow) + ' not provided in DataFrame row.')
         return self
 
     def init_fromDict(self, dictionary: Dict):
@@ -94,6 +100,19 @@ class StatePure:
         for propertyName in self._properties_all:
             if isNumeric(referenceValue := getattr(referenceState, propertyName)):
                 setattr(self, propertyName, referenceValue)
+        return self
+
+    def clearFields(self, clearFields: List[str] = None, keepFields: List[str] = None):
+        if keepFields is None and clearFields is not None:
+            for field in clearFields:
+                assert hasattr(self, field)
+                setattr(self, field, float('nan'))
+        elif clearFields is None and keepFields is not None:
+            for field in self._properties_all:
+                if field not in keepFields:
+                    setattr(self, field, float('nan'))
+        else:
+            pass
 
     def copy_or_verify_fromState(self, referenceState: 'StatePure', pTolerance: float = 3):
         """Copies property values from the provided reference state. If property already has a value defined, compares it to the one desired to be assigned, raises error if values do not match.

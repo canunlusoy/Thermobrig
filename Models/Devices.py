@@ -47,6 +47,8 @@ class WorkDevice(Device):
         # states_out is the list of all outlet states from the turbine. Flows may be extracted from the turbine at different stages with different pressures.
         # However it is expected that there is only one state_in.
 
+        self._pressureRatioRelationSetup = False
+
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
         if state_in is not None:
             self.state_in = state_in
@@ -62,21 +64,24 @@ class WorkDevice(Device):
 
 
 class Compressor(WorkDevice):
-    def __init__(self, eta_isentropic: float = 1):
+    def __init__(self, eta_isentropic: float = 1, pressureRatio: float = float('nan')):
         super(Compressor, self).__init__(eta_isentropic)
+        self.pressureRatio = pressureRatio
 
 class IGasCompressor(Compressor):
     pass
 
 
 class Pump(WorkDevice):
-    def __init__(self, eta_isentropic: float = 1):
+    def __init__(self, eta_isentropic: float = 1, pressureRatio: float = float('nan')):
         super(Pump, self).__init__(eta_isentropic)
+        self.pressureRatio = pressureRatio
 
 
 class Turbine(WorkDevice):
-    def __init__(self, eta_isentropic: float = 1):
+    def __init__(self, eta_isentropic: float = 1, pressureRatio: float = float('nan')):
         super(Turbine, self).__init__(eta_isentropic)
+        self.pressureRatio = pressureRatio
 
     def set_states(self, state_in: StatePure = None, state_out: StatePure = None):
         """This method is overridden for turbines. Proposed state_in is compared with the existing state_in (if one has already been set), and the existing state_in is replaced with the
@@ -112,7 +117,6 @@ class HeatDevice(Device):
         super(HeatDevice, self).__init__()
 
         self._infer_constant_pressure = infer_constant_P
-        self.sHeatSupplied = float('nan')
 
     def infer_constant_pressure(self):
         """Sets or verifies pressures of end states to be equal in all lines."""
@@ -125,12 +129,33 @@ class HeatDevice(Device):
             state_withNumericPval = endStates.other(state_withNonNumericPval)
             state_withNonNumericPval.P = state_withNumericPval.P
 
-    def get_sHeatSuppliedExpression(self, forFlow: 'Flow' = None):  # forFlow is here for compatibility - see ReheatBoiler for real usage
-        return [(1, (self.state_out, 'h')), (-1, (self.state_in, 'h'))]
+    def get_sHeatSuppliedExpression(self, forFlow: 'Flow' = None, constant_c: bool = False):  # forFlow is here for compatibility - see ReheatBoiler for real usage
+        """Returns the term to place in a LinearEquation that gives the (specific) enthalpy difference between exit and inlet states."""
+        if not constant_c:
+            return [(1, (self.state_out, 'h')), (-1, (self.state_in, 'h'))]
+        else:  # constant c analysis
+            return [(1, (forFlow.workingFluid.cp), (self.state_out, 'T')), (-1, (forFlow.workingFluid.cp), (self.state_in, 'T'))]
 
 class Combustor(HeatDevice):
-    def __init__(self):
+    """Heat addition device with a single inlet and a single exit state."""
+    def __init__(self, sHeatSupplied: float = float('nan')):
         super(Combustor, self).__init__()
+        self.sHeatSupplied = sHeatSupplied
+
+    def get_sHeatSuppliedEquation(self, constant_c: bool = True, cp: float = float('nan')) -> LinearEquation:
+        """Returns the LinearEquation stating the relation between end state enthalpies and the sHeatSupplied attribute of the device."""
+        # sHeatSupplied = state_out.h - state_in.h
+        # sHeatSupplied + state_in.h - state_out.h = 0
+        sHeatSupplied_relation_LHS = [(1, (self, 'sHeatSupplied'))]
+        if not constant_c:
+            sHeatSupplied_relation_LHS += [ (1, (self.state_in, 'h')), (-1, (self.state_out, 'h')) ]
+        else:
+            assert isNumeric(cp), 'Combustor.get_sHeatSupplied_relation: Constant c analysis on {0}: cp is not numeric!'.format(self)
+            sHeatSupplied_relation_LHS += [ (1, (cp), (self.state_in, 'T')), (-1, (cp), (self.state_out, 'T')) ]
+
+        sHeatSupplied_equation = LinearEquation(LHS=sHeatSupplied_relation_LHS, RHS=0)
+        sHeatSupplied_equation.source = 'Cycles._add_sHeatSupplied_relation'
+        return sHeatSupplied_equation
 
 
 class Boiler(HeatDevice):
@@ -208,7 +233,8 @@ class ReheatBoiler(HeatDevice):
                     print('InputError: Boiler is configured to infer fixed exit temperature, i.e. assumes all entering flows leave at same temperature.\n'
                           'Line consisting of {0} \nthrough the boiler has input data at its exit state conflicting with the inferred fixed exit temperature of {1}.'.format(line_endStates, self.T_exit_fixed))
 
-    def get_sHeatSuppliedExpression(self, forFlow: 'Flow' = None):
+    def get_sHeatSuppliedExpression(self, forFlow: 'Flow' = None, constant_c: bool = False):
+        """Returns the term to place in a LinearEquation that gives the (specific) enthalpy difference between exit and inlet states that belong to the specified flow."""
         # forFlow: Reheat boilers have multiple lines passing through them. Both lines do not have to belong to the same flow. When total heat supplied in flows is calculated, each HeatDevice's
         # get_sHeatSuppliedExpression method is called. When the method is called on rhboilers, if no provision is made for from which flow the method is called, the method will return the equation
         # giving the sum of heat supplied in all lines, not all of which may belong to the same flow, or more importantly not to the flow from which the method is called. Relying on the assumption that this method
@@ -217,19 +243,28 @@ class ReheatBoiler(HeatDevice):
         toReturn = []
         for line_endStates in self.lines:
             if forFlow is None or all(line_endState.flow is forFlow for line_endState in line_endStates):
-                toReturn += [ (1, (line_endStates[1], 'h')), (-1, (line_endStates[0], 'h')) ]
+                if not constant_c:
+                    toReturn += [ (1, (line_endStates[1], 'h')), (-1, (line_endStates[0], 'h')) ]
+                else:
+                    toReturn += [(1, (forFlow.workingFluid.cp), (line_endStates[1], 'T')), (-1, (forFlow.workingFluid.cp), (line_endStates[0], 'T'))]
         return toReturn
 
 
 class GasReheater(HeatDevice):
-    def __init__(self, heatTo: Union[float, str], infer_constant_lineP: bool = True):
+    def __init__(self, heatTo: Union[float, str], infer_constant_lineP: bool = True, sHeatSupplied: float = float('nan')):
         self.heatTo = heatTo
+        self.sHeatSupplied = sHeatSupplied
         super(GasReheater, self).__init__(infer_constant_lineP)
 
 
 class Condenser(HeatDevice):
     def __init__(self):
         super(Condenser, self).__init__()
+
+
+class Exhaust(HeatDevice):
+    def __init__(self):
+        super(Exhaust, self).__init__()
 
 
 class MixingChamber(Device):
@@ -343,6 +378,20 @@ class HeatExchanger(Device):
         if len(numeric_exitStateTvals) > 0:
             for line_exitState in line_exitStates:
                 line_exitState.set_or_verify({'T': numeric_exitStateTvals[0]})
+
+
+class Regenerator(HeatExchanger):
+    """A heat exchanger with 2 lines only and an adjustable effectiveness."""
+    def __init__(self, effectiveness: float = 1, constant_c: bool = True, counterFlow_commonColdTemperature: bool = False,
+                 coldLine_coolBy: float = float('nan'), warmLine_warmBy: float = float('nan')):
+        super(Regenerator, self).__init__()
+        self.effectiveness = effectiveness
+        self.constant_c = constant_c
+
+        self.counterFlow_commonColdTemperature = counterFlow_commonColdTemperature
+        self.coldLine_coolBy = coldLine_coolBy
+        self.warmLine_warmBy = warmLine_warmBy
+
 
 class ThrottlingValve:
     def __init__(self):

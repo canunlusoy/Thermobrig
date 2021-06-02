@@ -8,13 +8,13 @@ from Utilities.Exceptions import NeedsExtrapolationError
 
 class Fluid:
 
-    def __init__(self, mpDF: DataFrame):
+    def __init__(self, mpDF: DataFrame, k: float = float('nan'), cp: float = float('nan')):
 
         self.mpDF = mpDF
         self.defFcn = fullyDefine_StatePure
 
-        self.k = float('nan')
-        self.cp = float('nan')
+        self.k = k
+        self.cp = cp
 
         self.stateClass = StatePure  # States of this fluid should be StatePure objects
 
@@ -33,12 +33,11 @@ class Fluid:
 
 class IdealGas(Fluid):
 
-    def __init__(self, mpDF: DataFrame, R: float, k: float = float('nan')):
+    def __init__(self, mpDF: DataFrame, R: float, k: float = float('nan'), cp: float = float('nan')):
 
-        super(IdealGas, self).__init__(mpDF)
+        super(IdealGas, self).__init__(mpDF, k, cp)
         self.defFcn = fullyDefine_StateIGas
         self.R = R
-        self.k = k
 
         self.stateClass = StateIGas  # States of this fluid should be StateIGas objects
 

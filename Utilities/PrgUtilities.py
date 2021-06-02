@@ -1,8 +1,8 @@
 import numpy as np
 
 from collections import UserList
-from typing import List, Iterable, Callable
-from copy import deepcopy
+from typing import List, Iterable, Callable, Dict, Set
+from itertools import combinations
 
 from Utilities.Numeric import isNumeric
 
@@ -16,7 +16,10 @@ def findItem(items: Iterable, condition):
 def getattr_fromAddress(object, address: str):
     address_split = address.split('.')
     for address_level in address_split:
-        object = getattr(object, address_level)
+        try:
+            object = getattr(object, address_level)
+        except AttributeError:
+            print('getattr_fromAddress - ERROR: {0} does not have attribute {1}'.format(object, address_level))
     return object
 
 
@@ -142,7 +145,7 @@ class LinearEquation:
         for termIndex, term in enumerate(self.LHS):
             unknowns = term[1]
             unknowns_key = tuple(unknowns)
-            if unknowns_key not in unknown_termIndices_inEquation:
+            if unknowns_key not in unknown_termIndices_inEquation:  # TODO: checks by ==, not by identity. Identity should be checked.
                 unknown_termIndices_inEquation[unknowns_key] = [termIndex]
             else:
                 unknown_termIndices_inEquation[unknowns_key].append(termIndex)
@@ -328,3 +331,74 @@ class System_ofLinearEquations:
         solution = self.solve()
         for attributeAddress in solution:
             setattr_fromAddress(object=attributeAddress[0], attributeName=attributeAddress[1], value=solution[attributeAddress])
+
+
+def updateEquations(equations: List, updatedUnknowns: Set, updateAll: bool = False):
+    """Updates the LinearEquations in the list equations if equation contains an unknown from the list updatedUnknowns. Updated all equations if updateAll."""
+    for equation in equations:
+        if updateAll or any(unknown in equation.get_unknowns() for unknown in updatedUnknowns):
+            equation.update()
+        updatedUnknowns = set()
+
+
+def solve_solvableEquations(equations: List):
+    """Solves the solvable LinearEquations in **equations** and returns the newly solved unknowns in the **updatedUnknowns** set."""
+    solvedEquations = []
+    updatedUnknowns = set()
+
+    for equation in equations:
+        equation.update()
+        if equation.isSolvable():
+            solution = equation.solve()
+            unknownAddress = list(solution.keys())[0]
+            setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+            updatedUnknowns.add(unknownAddress)
+            solvedEquations.append(equation)
+
+    for equation in solvedEquations:
+        equations.remove(equation)
+
+    return updatedUnknowns
+
+
+def solve_combination_ofEquations(equations: List, number_ofEquations: int) -> Set:
+    """Iterates through combinations of equations (from the equations pool) with the specified number_ofEquations. For each combination, checks if the
+    system is solvable. If so, solves it, assigns the unknowns the solution values and removes the solved equations from the _equations pool."""
+    updatedUnknowns = set()
+
+    for equationCombination in combinations(equations, number_ofEquations):
+
+        # If any of the equations got solved in a previous iteration and got removed from _equations, skip this combination
+        # Combinations are generated beforehand at the beginning of the main for loop.
+        if any(equation not in equations for equation in equationCombination):
+            continue
+
+        if (system := System_ofLinearEquations(list(equationCombination))).isSolvable():
+            solution = system.solve()
+            unknownAddresses = list(solution.keys())
+            for unknownAddress in unknownAddresses:
+                setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+                updatedUnknowns.add(unknownAddress)
+
+            # If system is solved, all equations in the combination is solved. Remove them from equations pool.
+            for equation in equationCombination:
+                equations.remove(equation)
+
+    return updatedUnknowns
+
+
+class Logbook:
+    def __init__(self):
+        self.logbook = []
+
+    def log(self, eventType: str, place, result, workedOn, inRelationTo):
+        # EventType
+        # Place
+        # Result
+        # WorkedOn
+        # InRelationTo - related device
+        self.logbook.append({'eventType': eventType,
+                             'place': place,
+                             'result': result,
+                             'workedOn': workedOn,
+                             'inRelationTo': inRelationTo})
