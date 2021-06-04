@@ -184,6 +184,8 @@ class StateIGas(StatePure):
         elif any(self.hasDefined(property) for property in self._properties_Tdependent) and any(self.hasDefined(property) for property in ['P', 'mu']):
             # if T is defined, and one of P or mu is defined, the other unknown LHS term can be found, assuming R is known
             definable = True
+        elif self.hasDefined('T'):  # TODO: Temp. StateIGas left undefined because this method returns False, even when T-dependent tabulated properties can be found.
+            definable = True
 
         # An alternative method to check if isFullyDefinable is to check if number of unknowns among P, T, mu is 1. This method here is more descriptive so leaving as is.
         return definable

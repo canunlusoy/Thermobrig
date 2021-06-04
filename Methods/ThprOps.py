@@ -491,6 +491,8 @@ def fullyDefine_StateIGas(state: StateIGas, fluid: 'IdealGas') -> StateIGas:
             except NeedsExtrapolationError:
                 print('fullyDefine_StateIGas: Extrapolation needed to find state at {0}={1}'.format(refPropt_name, getattr(state, refPropt_name)))
                 pass
+        else:
+            state.init_fromDFRow(state_at_refPropt)  # Found exact match, initialize from DFRow
 
     # In case the table look-up determines T from another T-dependent property, can use ideal gas law to figure out P or mu if they were unknown
     # TODO: Try ideal gas law again only if changes have been made

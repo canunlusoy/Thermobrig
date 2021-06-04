@@ -1057,8 +1057,6 @@ class TestFlows(unittest.TestCase):
         cycle.Q_in = 150
         cycle.solve()
 
-        pass
-
 
     def test_flows_air_01(self):
         # MECH2201 - A11-3
@@ -1112,7 +1110,7 @@ class TestFlows(unittest.TestCase):
                         state_3 := StateIGas(),
                         compressor2 := Compressor(pressureRatio=5),
                         state_4 := StateIGas(),
-                        regenerator := Regenerator(),  # TODO: Regenerator increase T by option...
+                        regenerator := Regenerator(),
                         state_5 := StateIGas(),
                         combustor := Combustor(sHeatSupplied=300),
                         state_6 := StateIGas(),
@@ -1130,9 +1128,8 @@ class TestFlows(unittest.TestCase):
         flow_a.constant_c = True
         cycle = Cycle()
         cycle.flows = [flow_a]
-        eqn = LinearEquation(LHS=[(-1, (state_4, 'T')), (1, (state_5, 'T'))], RHS=20)  # TODO: StatePure hashing issue. states 4/5 not distinguished when not flowpoints.
+        eqn = LinearEquation(LHS=[(-1, (state_4, 'T')), (1, (state_5, 'T'))], RHS=20)
         cycle._equations.append(eqn)
-        # self._equations.append(LinearEquation(LHS=[(1, (flow, 'massFR')), (-1, (mainFlow, 'massFR'), (flow, 'massFF'))], RHS=0))
 
         cycle.solve()
         cycle.solve()
@@ -1170,9 +1167,17 @@ class TestFlows(unittest.TestCase):
         cycle = Cycle()
         cycle.flows = [flow_a]
         cycle.netPower = 115
+        eqn = LinearEquation(LHS=[(1, (state_5, 'T')), (-1, (state_3, 'T'))], RHS=10)
+        cycle._equations.append(eqn)
         cycle.solve()
 
-        print(3)
+        self.CompareResults(state_2, {'T': 616.28-273}, 3)
+        self.CompareResults(state_3, {'T': 517.55-273}, 3)
+        self.CompareResults(state_5, {'T': 527.55-273}, 3)
+        self.CompareResults(state_6, {'T': 626.28-273}, 3)
+        self.CompareResults(flow_a, {'massFR': 0.493}, 3)
+        self.assertTrue(isWithin(flow_a.sHeatSupplied*flow_a.massFR, 3, '%', 275))
+
 
     def test_flows_air_04(self):
         # Cengel P9-90
@@ -1204,3 +1209,252 @@ class TestFlows(unittest.TestCase):
         self.CompareResults(flow_a, {'massFR': 15.77}, 3)
         self.assertTrue(isWithin(cycle.netPower, 3, '%', 6081))
         self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.374))
+
+    def test_flows_air_05(self):
+        # MECH2201 - A11-2
+        # Cengel P9-124
+
+        flow_a = Flow(air, massFlowFraction=1)
+        flow_a.items = [state_1 := StateIGas(P=100, T=17),
+                        compressor1 := Compressor(pressureRatio=4),
+                        state_2 := StateIGas(),
+                        intercooler := Intercooler(coolTo='ideal'),
+                        state_3 := StateIGas(),
+                        compressor2 := Compressor(pressureRatio=4),
+                        state_4 := StateIGas(),
+                        intercooler2 := Intercooler(coolTo='ideal'),
+                        state_5 := StateIGas(),
+                        compressor3 := Compressor(pressureRatio=4),
+                        state_6 := StateIGas(),
+                        regenerator := Regenerator(),
+                        state_7 := StateIGas(),
+                        combustor := Combustor(sHeatSupplied=300),
+                        state_8 := StateIGas(),
+                        turbine1 := Turbine(pressureRatio=4),
+                        state_9 := StateIGas(),
+                        reheater := GasReheater(heatTo='heatSupplied', sHeatSupplied=300),
+                        state_10 := StateIGas(),
+                        turbine2 := Turbine(pressureRatio=4),
+                        state_11 := StateIGas(),
+                        reheater2 := GasReheater(heatTo='heatSupplied', sHeatSupplied=300),
+                        state_12 := StateIGas(),
+                        turbine3 := Turbine(pressureRatio=4),
+                        state_13 := StateIGas(),
+                        regenerator,
+                        state_14 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        flow_a.constant_c = True
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        eqn = LinearEquation(LHS=[(-1, (state_6, 'T')), (1, (state_7, 'T'))], RHS=20)
+        cycle._equations.append(eqn)
+
+        cycle.solve()  # TODO - cycle solution should redo equations on its own.
+        cycle.solve()
+        cycle.solve()
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_2, {'T': 430.9-273}, 3)
+        self.CompareResults(state_4, {'T': 430.9-273}, 3)
+        self.CompareResults(state_6, {'T': 430.9-273}, 3)
+        self.CompareResults(state_7, {'T': 450.9-273}, 3)
+        self.CompareResults(state_8, {'T': 749.4-273}, 3)
+        self.CompareResults(state_9, {'T': 504.3-273}, 3)
+        self.CompareResults(state_10, {'T': 802.8-273}, 3)
+        self.CompareResults(state_11, {'T': 540.2-273}, 3)
+        self.CompareResults(state_12, {'T': 838.7-273}, 3)
+        self.CompareResults(state_13, {'T': 564.4-273}, 3)
+        self.CompareResults(state_14, {'T': 544.4-273}, 3)
+        self.assertTrue(isWithin(cycle.sHeat, 3, '%', 900))
+        self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.401))
+
+    def test_flows_air_06(self):
+        # Cengel P9-121
+        PR = 3
+        flow_a = Flow(workingFluid=air, massFlowFraction=1)
+        flow_a.constant_c = False
+        flow_a.items = [state_1 := StateIGas(T=300-273, P=100),  # Dummy pressure. TODO: Could use PRatio where possible, that way, won't need dummy P
+                        compressor1 := Compressor(pressureRatio=PR),
+                        state_2 := StateIGas(),
+                        intercooler := Intercooler(coolTo='ideal'),
+                        state_3 := StateIGas(),
+                        compressor2 := Compressor(pressureRatio=PR),
+                        state_4 := StateIGas(),
+                        regenerator := Regenerator(effectiveness=0.75, counterFlow_commonColdTemperature=True),
+                        state_9 := StateIGas(),
+                        combustor := Combustor(),
+                        state_5 := StateIGas(T=1200-273),
+                        turbine1 := Turbine(pressureRatio=PR),
+                        state_6 := StateIGas(),
+                        reheater := GasReheater(heatTo='ideal'),
+                        state_7 := StateIGas(),
+                        turbine2 := Turbine(pressureRatio=PR),
+                        state_8 := StateIGas(),
+                        regenerator,
+                        state_10 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_2, {'h': 411.26, 'P_r': 4.158}, 3)
+        self.CompareResults(state_4, {'h': 411.26}, 3)
+        self.CompareResults(state_5, {'h': 1277.79, 'P_r': 238}, 3)
+        self.CompareResults(state_6, {'h': 946.36}, 3)
+        self.CompareResults(state_8, {'h': 946.36}, 3)
+        self.CompareResults(flow_a, {'net_sWorkExtracted': 440.72}, 3)
+        self.assertTrue(isWithin(regenerator.effectiveness*(state_8.h - state_4.h), 3, '%', 401.33))
+        self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.553))
+
+    def test_flows_air_07(self):
+        # Cengel P9-109
+
+        flow_a = Flow(workingFluid=air, massFlowFraction=1)
+        flow_a.constant_c = False
+
+        flow_a.items = [state_1 := StateIGas(T=310-273, P=100),
+                        compressor := Compressor(),
+                        state_2 := StateIGas(P=900, T=650-273),
+                        regenerator := Regenerator(effectiveness=0.8, counterFlow_commonColdTemperature=True),
+                        state_5 := StateIGas(),
+                        combustor := Combustor(),
+                        state_3 := StateIGas(T=1400-273),
+                        turbine := Turbine(eta_isentropic=0.9),
+                        state_4 := StateIGas(),
+                        regenerator,
+                        state_6 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_4, {'h': 900.74}, 3)
+        self.assertTrue(isWithin(cycle.net_sPower, 3, '%', 265.08))
+        self.assertTrue(isWithin(cycle.sHeat, 3, '%', 662.88))
+
+        self.assertTrue(isWithin(state_5.h - state_2.h, 3, '%', 192.7))
+        self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.4))
+
+    def test_flows_air_08(self):
+        # Cengel P9-104
+
+        flow_a = Flow(workingFluid=air, massFlowFraction=1)
+        flow_a.constant_c = False
+
+        flow_a.items = [state_1 := StateIGas(T=300-273, P=100),
+                        compressor := Compressor(pressureRatio=10),
+                        state_2 := StateIGas(),
+                        regenerator := Regenerator(effectiveness=1, counterFlow_commonColdTemperature=True),
+                        state_5 := StateIGas(),
+                        combustor := Combustor(),
+                        state_3 := StateIGas(T=1200-273),
+                        turbine := Turbine(pressureRatio=10),
+                        state_4 := StateIGas(),
+                        regenerator,
+                        state_6 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_2, {'h': 579.87}, 3)
+        self.CompareResults(state_4, {'h': 675.85}, 3)
+
+        self.assertTrue(isWithin(cycle.net_sPower, 3, '%', 322.26))
+        self.assertTrue(isWithin(cycle.sHeat, 3, '%', 601.94))
+        self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.535))
+
+    def test_flows_air_09(self):
+        # Cengel P9-83
+
+        flow_a = Flow(workingFluid=air, massFlowFraction=1)
+        flow_a.constant_c = False
+
+        flow_a.items = [state_1 := StateIGas(T=295-273, P=100),
+                        compressor := Compressor(pressureRatio=10, eta_isentropic=0.83),
+                        state_2 := StateIGas(),
+                        combustor := Combustor(),
+                        state_3 := StateIGas(T=1240- 273),
+                        turbine := Turbine(pressureRatio=10, eta_isentropic=0.87),
+                        state_4 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+
+        self.CompareResults(state_2, {'h': 626.6}, 3)
+        self.CompareResults(state_4, {'h': 783.04, 'T':764.4-273}, 3)
+
+        self.assertTrue(isWithin(cycle.net_sPower, 3, '%', 210.4))
+        self.assertTrue(isWithin(cycle.sHeat, 3, '%', 698.3))
+        self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.301))
+
+    def test_flows_air_10(self):
+        # Cengel P9-85
+
+        flow_a = Flow(workingFluid=air, massFlowFraction=1)
+        flow_a.constant_c = True
+
+        flow_a.items = [state_1 := StateIGas(T=295-273, P=100),
+                        compressor := Compressor(pressureRatio=10, eta_isentropic=0.83),
+                        state_2 := StateIGas(),
+                        combustor := Combustor(),
+                        state_3 := StateIGas(T=1240- 273),
+                        turbine := Turbine(pressureRatio=10, eta_isentropic=0.87),
+                        state_4 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.solve()
+
+        self.CompareResults(state_2, {'T': 625.8-273}, 3)
+        self.CompareResults(state_4, {'T': 720-273}, 3)
+
+        self.assertTrue(isWithin(cycle.net_sPower, 3, '%', 190.2))
+        self.assertTrue(isWithin(cycle.sHeat, 3, '%', 617.3))
+        self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.308))
+
+    def test_flows_air_11(self):
+        # Cengel P9-94
+
+        flow_a = Flow(workingFluid=air, massFlowFraction=1)
+        flow_a.constant_c = True
+
+        flow_a.items = [state_1 := StateIGas(T=0, P=100),
+                        compressor := Compressor(pressureRatio=8),
+                        state_2 := StateIGas(),
+                        combustor := Combustor(),
+                        state_3 := StateIGas(T=1500 - 273),
+                        hpturbine := Turbine(),
+                        state_4 := StateIGas(),
+                        lpturbine := Turbine(),
+                        state_5 := StateIGas(),
+                        exhaust := Exhaust(),
+                        state_1]
+
+        cycle = Cycle()
+        cycle.flows = [flow_a]
+        cycle.netPower = 200000
+        eqn = LinearEquation(LHS=[(1, (state_2, 'T')), (-1, (state_1, 'T')), (-1, (state_3, 'T')), (1, (state_4, 'T'))], RHS=0)
+        cycle._equations.append(eqn)
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_4, {'T': 1279-273, 'P': 457}, 3)
+        self.CompareResults(flow_a, {'massFR': 442}, 3)

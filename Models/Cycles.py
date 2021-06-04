@@ -98,7 +98,7 @@ class Cycle:
         if Regenerator in self._deviceDict:
             for regenerator in self._deviceDict[Regenerator]:
                 if self._regerator_solutionSetups[regenerator] == False:
-                    solution_setup = self.solve_regenerator(regenerator, constant_c=regenerator.constant_c)
+                    solution_setup = self.solve_regenerator(regenerator)
                     self._regerator_solutionSetups[regenerator] = solution_setup
 
         for deviceType in [Combustor, GasReheater]:
@@ -207,7 +207,7 @@ class Cycle:
             self._equations.append(heatBalance)
             heatBalance.source = device
 
-    def solve_regenerator(self, device: Regenerator, constant_c: bool = False):
+    def solve_regenerator(self, device: Regenerator):
 
         if all(isNumeric(line[0].T) for line in device.lines):  # Need inlet temperatures of both lines to determine in which direction heat will flow
 
@@ -216,6 +216,9 @@ class Cycle:
                 coldLine, warmLine = device.lines
             warm_in, warm_out = warmLine
             cold_in, cold_out = coldLine
+
+            assert warm_in.flow.constant_c == cold_in.flow.constant_c, 'solve_regenerator: Flows of the warm and cold lines have different constant_c settings! Not allowed.'
+            constant_c = warm_in.flow.constant_c
 
             if device.counterFlow_commonColdTemperature:
                 warm_out.set_or_verify({'T': cold_in.T})

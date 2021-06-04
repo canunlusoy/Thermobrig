@@ -382,11 +382,9 @@ class HeatExchanger(Device):
 
 class Regenerator(HeatExchanger):
     """A heat exchanger with 2 lines only and an adjustable effectiveness."""
-    def __init__(self, effectiveness: float = 1, constant_c: bool = True, counterFlow_commonColdTemperature: bool = False,
-                 coldLine_coolBy: float = float('nan'), warmLine_warmBy: float = float('nan')):
+    def __init__(self, effectiveness: float = 1, counterFlow_commonColdTemperature: bool = False, coldLine_coolBy: float = float('nan'), warmLine_warmBy: float = float('nan')):
         super(Regenerator, self).__init__()
         self.effectiveness = effectiveness
-        self.constant_c = constant_c
 
         self.counterFlow_commonColdTemperature = counterFlow_commonColdTemperature
         self.coldLine_coolBy = coldLine_coolBy
