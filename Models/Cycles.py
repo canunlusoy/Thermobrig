@@ -70,6 +70,7 @@ class Cycle:
 
             # Review intersections, construct equations & attempt to solve - if there are undefined states around them
             # This process needs to be done only once since equations need to be constructed once. Then they are added to the _equations pool.
+
             # intersections_attempted_toSolve = []  # list of intersection devices on which the _solveIntersection() has been run - keeping track not to run the _solveIntersection twice on the same device
             # for state in self.get_undefinedStates():
             #     surroundingDevices = state.flow.get_surroundingItems(state)
@@ -381,7 +382,9 @@ class Cycle:
     def _add_COP_relation(self):
         """Constructs the equation of the coefficient of performance (COP) of the complete cycle."""
         # COP = Q_in/W_in
-        # TODO: COP_relation_LHS = [ ( (self, 'COP'), (self.) ) ]
+        COP_relation_LHS = [ ( (self, 'COP'), (self._net_sPower_relation.isolate([(self, 'net_sPower'),])) ), (-1, -1, (self._sHeat_relation.isolate([(self, 'sHeat'),]))) ]
+        COP_relation = LinearEquation(LHS=COP_relation_LHS, RHS=0)
+        self._equations.append(COP_relation)
 
     def _get_mainFlow(self) -> Flow:
         """Returns the flow whose mass flow fraction is 1."""

@@ -1037,26 +1037,6 @@ class TestFlows(unittest.TestCase):
         #
         # pass
 
-    def test_flows_refr_01(self):
-        # CENGEL P11-13
-
-        flow_a = Flow(R134a)
-        flow_a.massFF = 1
-        flow_a.items = [state_1 := StatePure(x=1),
-                        compressor := Compressor(),
-                        state_2 := StatePure(P=800),
-                        condenser := Condenser(),
-                        state_3 := StatePure(x=0),
-                        expValve := Trap(),
-                        state_4 := StatePure(T=-12),
-                        evaporator := Boiler(),
-                        state_1]
-
-        cycle = Cycle()
-        cycle.flows = [flow_a]
-        cycle.Q_in = 150
-        cycle.solve()
-
 
     def test_flows_air_01(self):
         # MECH2201 - A11-3
@@ -1458,3 +1438,92 @@ class TestFlows(unittest.TestCase):
 
         self.CompareResults(state_4, {'T': 1279-273, 'P': 457}, 3)
         self.CompareResults(flow_a, {'massFR': 442}, 3)
+
+    def test_flows_refr_01(self):
+        # CENGEL P11-13
+
+        flow_a = Flow(R134a)
+        flow_a.massFF = 1
+        flow_a.items = [state_1 := StatePure(x=1),
+                        compressor := Compressor(),
+                        state_2 := StatePure(P=800),
+                        condenser := Condenser(),
+                        state_3 := StatePure(x=0),
+                        expValve := Trap(),
+                        state_4 := StatePure(T=-12),
+                        evaporator := Boiler(),
+                        state_1]
+
+        cycle = Cycle(type='refrigeration')
+        cycle.flows = [flow_a]
+        cycle.Q_in = 150
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_1, {'h': 243.34, 's': 0.93925}, 3)
+        self.CompareResults(state_2, {'h': 273.71}, 3)
+        self.CompareResults(state_3, {'h': 95.48}, 3)
+        self.CompareResults(state_4, {'h': 95.48}, 3)
+        self.CompareResults(flow_a, {'massFR': 1.014}, 3)
+        self.CompareResults(cycle, {'netPower': -30.81}, 3)
+        self.CompareResults(cycle, {'COP': 4.87}, 3)
+
+    def test_flows_refr_02(self):
+        # CENGEL P11-16
+
+        flow_a = Flow(R134a)
+        flow_a.massFF = 1
+        flow_a.items = [state_1 := StatePure(P=140, x=1),
+                        compressor := Compressor(eta_isentropic=0.85),
+                        state_2 := StatePure(P=800),
+                        condenser := Condenser(),
+                        state_3 := StatePure(x=0),
+                        expValve := Trap(),
+                        state_4 := StatePure(),
+                        evaporator := Boiler(),
+                        state_1]
+
+        cycle = Cycle(type='refrigeration')
+        cycle.flows = [flow_a]
+        cycle.Q_in = 5
+        cycle.solve()
+        cycle.solve()
+
+        self.CompareResults(state_1, {'h': 239.19, 's': 0.94467}, 3)
+        self.CompareResults(state_2, {'h': 281.79, 's':0.96494}, 3)
+        self.CompareResults(state_3, {'h': 95.48}, 3)
+        self.CompareResults(state_4, {'x': 0.323, 'h': 95.48}, 3)
+        self.CompareResults(flow_a, {'massFR': 0.03479}, 3)
+        self.CompareResults(cycle, {'netPower': -1.48}, 3)
+        self.CompareResults(cycle, {'COP': 3.373}, 3)
+
+    def test_flows_refr_03(self):
+        # CENGEL P11-19
+
+        flow_a = Flow(R134a)
+        flow_a.massFF = 1
+        flow_a.massFR = (1/(R134a.define(StatePure(T=-20, P=100)).mu))*0.5/60
+        flow_a.items = [state_1 := StatePure(T=-20, P=100),
+                        compressor := Compressor(eta_isentropic=0.78),
+                        state_2 := StatePure(P=800),
+                        condenser := Condenser(infer_constant_P=False),
+                        state_3 := StatePure(P=750, T=26),
+                        expValve := Trap(),
+                        state_4 := StatePure(),
+                        evaporator := Boiler(),
+                        state_1]
+
+        cycle = Cycle(type='refrigeration')
+        cycle.flows = [flow_a]
+        cycle.solve()
+        cycle.solve()
+
+        # TODO: There is a state 5 - pressure drop in line between evaporator and compressor.
+
+        self.CompareResults(state_1, {'h': 239.52, 's': 0.97215, 'mu':0.19841}, 3)
+        self.CompareResults(state_2, {'h': 296.67}, 3)
+        self.CompareResults(state_3, {'h': 87.83}, 3)
+        self.CompareResults(state_4, {'h': 87.83}, 3)
+        self.CompareResults(flow_a, {'massFR': 0.042}, 3)
+        self.CompareResults(cycle, {'netPower': -2.4}, 3)
+        # self.CompareResults(cycle, {'Q_in': 6.17}, 3)

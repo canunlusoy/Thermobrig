@@ -258,8 +258,8 @@ class GasReheater(HeatDevice):
 
 
 class Condenser(HeatDevice):
-    def __init__(self):
-        super(Condenser, self).__init__()
+    def __init__(self, infer_constant_P: bool = True):
+        super(Condenser, self).__init__(infer_constant_P=infer_constant_P)
 
 
 class Exhaust(HeatDevice):

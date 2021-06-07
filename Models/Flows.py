@@ -1,6 +1,4 @@
 
-from math import exp
-from operator import itemgetter
 from typing import Union, List, Dict
 
 from Methods.ThprOps import apply_isentropicEfficiency, apply_incompressibleWorkRelation, apply_isentropicIGasProcess
