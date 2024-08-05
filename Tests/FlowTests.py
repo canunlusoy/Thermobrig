@@ -427,7 +427,6 @@ class TestFlows(unittest.TestCase):
                         state_6 := StatePure(),
                         mixc]
 
-
         cycle = Cycle()
         cycle.flows = [flow_a, flow_b, flow_c]
         cycle.solve()
@@ -1382,6 +1381,7 @@ class TestFlows(unittest.TestCase):
         self.assertTrue(isWithin(cycle.net_sPower, 3, '%', 210.4))
         self.assertTrue(isWithin(cycle.sHeat, 3, '%', 698.3))
         self.assertTrue(isWithin(cycle.efficiency, 3, '%', 0.301))
+
 
     def test_flows_air_10(self):
         # Cengel P9-85

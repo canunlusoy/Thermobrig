@@ -37,6 +37,9 @@ class Flow:
 
         self._initialSolutionComplete = False
 
+        self.log = None
+        self.callbacks = None
+
 
     @property
     def states(self) -> List[StatePure]:
@@ -62,7 +65,7 @@ class Flow:
     def sHeatSupplied(self):
         return self.get_sHeatSupplied(returnExpression=True)
 
-    def isFullyDefined(self):
+    def isFullyDefined(self) -> bool:
         """Checks if all states in the flow are fully defined."""
         return all(state.isFullyDefined() for state in self.states)
 
@@ -114,6 +117,7 @@ class Flow:
 
             self._define_definableStates()
             self._initialSolutionComplete = True
+        # Initialization complete.
 
         undefinedStates_previousIteration = []
         iterationCounter = 0
@@ -232,9 +236,9 @@ class Flow:
             if device._infer_constant_linePressures:
                 device.infer_constant_linePressures()
 
-            # Setting temperature of exit states equal for all lines # TODO - not the ideal place - inter-flow operation should ideally be in cycle scope
+            # Setting temperature of exit states equal for all lines
             if device._infer_common_exitTemperatures:
-                device.infer_common_exitTemperatures()
+                device.infer_common_exitTemperatures()  # not the ideal place - inter-flow operation should ideally be in cycle scope
 
         elif isinstance(device, MixingChamber):
             # Setting pressures of all in / out flows to the same value
@@ -256,26 +260,26 @@ class Flow:
 
         # PRESSURE RATIO RELATION SETUP
         if not device._pressureRatioRelationSetup and len(states_afterDevice) == 1:
-            self._add_pressureRatioRelation(device)
+            self._add_pressureRatioRelation(device)  # To be done only once, for devices with a single exit state (excludes turbines with multiple extractions)
 
         # ISENTROPIC PROCESS RELATIONS
         if device.eta_isentropic == 1:
-            self._set_endStateEntropiesEqual(device)
+            device.set_endStateEntropiesEqual()  # Sets or verifies.
 
             if isinstance(self.workingFluid, IdealGas):
                 for state_out in device.states_out:  # Can determine additional properties based on ideal gas isentropic process relations
-                    apply_isentropicIGasProcess(constant_c=self.constant_c, state_in=device.state_in, state_out=state_out, fluid=self.workingFluid)
+                    apply_isentropicIGasProcess(constant_c=self.constant_c, state_in=device.state_in, state_out=state_out, fluid=self.workingFluid)  # sets, verifies, or does nothing
 
             self._defineStates_ifDefinable(device.endStates)  # if any states became definable with the above process
 
         # ISENTROPIC EFFICIENCY RELATIONS
         for state_out in states_afterDevice:
             if not isinstance(self.workingFluid, IdealGas) and (device.state_in.hasDefined('h') and state_out.hasDefined('P')):  # Used to check if state_in also hadNumeric 's'
-                # going to overwrite state_out - TODO: Need to copy in the first time, then verify in subseqs
+                # going to overwrite state_out - TODO: Need to copy in the first time, then verify in subseqs - verify if eta_isentropic holds!
                 state_out.copy_fromState(apply_isentropicEfficiency(constant_c=self.constant_c,
                                                                     state_in=device.state_in, state_out_ideal=state_out,
                                                                     eta_isentropic=device.eta_isentropic, fluid=self.workingFluid))
-            elif isinstance(self.workingFluid, IdealGas):
+            elif isinstance(self.workingFluid, IdealGas):  # TODO: Do, or verify
 
                 # FIND state_out FROM state_in
                 if not state_out.hasDefined('T'):  # common case: find state_out based on state_in
@@ -314,44 +318,45 @@ class Flow:
             pressureRatioRelation.source = device
             self._equations.append(pressureRatioRelation)
 
-    def _set_endStateEntropiesEqual(self, device: WorkDevice):
-        """If isentropic efficiency is 100%, sets entropy of all endStates of the device to be the same. This will help determine some states."""
-        numeric_s_values = [state.s for state in device.endStates if isNumeric(state.s)]
-        if len(numeric_s_values) > 0:
-            for endState in device.endStates:
-                # use the first numeric s value as reference to validate others against / or set them
-                if not endState.hasDefined('s'):
-                    endState.set({'s': numeric_s_values[0]})  # TODO - ERROR PRONE - added for cengel p10-34, 35
-
     def _get_state_in_from_state_out(self, device: WorkDevice, state_out: StateIGas, percentDifference: float = 0.1, iteration_T_steps: float = 2):
         """Finds state_in to the WorkDevice by iterating and trying to match the isentropic efficiency."""
-        # TODO: Can add the process for constant c, non ideal gases
+        # TODO: Can add the process for non-idealgases
 
-        state_in_guess = StateIGas(P=device.state_in.P)
-        apply_isentropicIGasProcess(constant_c=self.constant_c, state_in=state_in_guess, state_out=state_out, fluid=self.workingFluid)
-        state_in_guess.clearFields(keepFields=['P', 'T'])  # Iteration guess state has only T and P defined.
+        # Data Requirements:
+        # state_out.P, state_in.P
 
-        compression = state_out.P > device.state_in.P
-        iteration = 1
-        while True:
-            print('_get_state_in_from_state_out: Solution iteration #{0} - state_in temperature guess: {1}'.format(iteration, state_in_guess.T))
-            self.workingFluid.define(state_in_guess)
-            state_out_ideal_guess = StateIGas(P=state_out.P)
-            apply_isentropicIGasProcess(self.constant_c, fluid=self.workingFluid, state_in=state_in_guess, state_out=state_out_ideal_guess)
+        if isinstance(self.workingFluid, IdealGas):
+            state_in_guess = StateIGas(P=device.state_in.P)
+            apply_isentropicIGasProcess(constant_c=self.constant_c, state_in=state_in_guess, state_out=state_out, fluid=self.workingFluid)
+            state_in_guess.clearFields(keepFields=['P', 'T'])  # Iteration guess state has only T and P defined.
 
-            if compression:
-                eta_isentropic_guess = (state_out_ideal_guess.h - state_in_guess.h) / (state_out.h - state_in_guess.h)
-            else:  # expansion
-                eta_isentropic_guess = (state_in_guess.h - state_out.h) / (state_in_guess.h - state_out_ideal_guess.h)
+            compression = state_out.P > device.state_in.P
+            iteration = 1
+            while True:
+                print('_get_state_in_from_state_out: Solution iteration #{0} - state_in temperature guess: {1}'.format(iteration, state_in_guess.T))
+                self.workingFluid.define(state_in_guess)
+                state_out_ideal_guess = StateIGas(P=state_out.P)
+                apply_isentropicIGasProcess(self.constant_c, fluid=self.workingFluid, state_in=state_in_guess, state_out=state_out_ideal_guess)
 
-            if isWithin(eta_isentropic_guess, percentDifference, '%', device.eta_isentropic):
-                print('_get_state_in_from_state_out: Solution satisfactory at iteration {0} - eta_isentropic Prescribed/Calculated: {1}/{2}\n\tstate_in: {3}'.format(iteration, device.eta_isentropic, eta_isentropic_guess, state_in_guess))
-                break
-            else:
-                # Reset iteration guess state at each iteration to have T and P only.
-                state_in_guess = StateIGas(T=(state_in_guess.T - iteration_T_steps), P=device.state_in.P)  # reduce temperature by K/°C and try again to see if this is the right state_in that gives the prescribed isentropic efficiency
-                iteration += 1
-        return state_in_guess
+                if compression:
+                    if not self.constant_c:
+                        eta_isentropic_guess = (state_out_ideal_guess.h - state_in_guess.h) / (state_out.h - state_in_guess.h)
+                    else:
+                        eta_isentropic_guess = (state_out_ideal_guess.T - state_in_guess.T) / (state_out.T - state_in_guess.T)
+                else:  # expansion
+                    if not self.constant_c:
+                        eta_isentropic_guess = (state_in_guess.h - state_out.h) / (state_in_guess.h - state_out_ideal_guess.h)
+                    else:
+                        eta_isentropic_guess = (state_in_guess.T - state_out.T) / (state_in_guess.T - state_out_ideal_guess.T)
+
+                if isWithin(eta_isentropic_guess, percentDifference, '%', device.eta_isentropic):
+                    print('_get_state_in_from_state_out: Solution satisfactory at iteration {0} - eta_isentropic Prescribed/Calculated: {1}/{2}\n\tstate_in: {3}'.format(iteration, device.eta_isentropic, eta_isentropic_guess, state_in_guess))
+                    break
+                else:
+                    # Reset iteration guess state at each iteration to have T and P only.
+                    state_in_guess = StateIGas(T=(state_in_guess.T - iteration_T_steps), P=device.state_in.P)  # reduce temperature by K/°C and try again to see if this is the right state_in that gives the prescribed isentropic efficiency
+                    iteration += 1
+            return state_in_guess
 
     def get_net_sWorkExtracted(self, returnExpression: bool = False):
         """Returns the value of the total specific work extracted by the WorkDevices of the flow. If returnExpression, returns the expression that gives the value when added in a LinearEquation."""

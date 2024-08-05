@@ -16,6 +16,16 @@ class NeedsExtrapolationError(Exception):
         super(NeedsExtrapolationError, self).__init__(message)
 
 
+class SubcooledExtrapolationError(NeedsExtrapolationError):
+    def __init__(self, message: str):
+        super(NeedsExtrapolationError, self).__init__(message)
+
+
+class SuperheatedExtrapolationError(NeedsExtrapolationError):
+    def __init__(self, message: str):
+        super(NeedsExtrapolationError, self).__init__(message)
+
+
 class DataVerificationError(Exception):
     def __init__(self, availableValue: float, alternateValue: float):
         message = 'Initial value of {0} compared with {1} for verification. Two values are not within acceptable proximity. ' \

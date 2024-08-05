@@ -7,7 +7,7 @@ from typing import Union, Dict, List
 from Utilities.Numeric import isNumeric, isWithin
 
 
-@dataclass  # TODO: Not hashing as intended. Instances with identical content have same hash.
+@dataclass
 class StatePure:
     P: float = float('nan')
     T: float = float('nan')
@@ -46,7 +46,7 @@ class StatePure:
         definable = False
         saturated = (0 <= self.x <= 1)
 
-        if saturated:
+        if saturated:  # TODO: Does this consider cases when x is not defined?
             if sum(1 for property_regular in self._properties_regular if isNumeric(getattr(self, property_regular))) >= 1:
                 # if saturated mixture, values of quality & 1 other intensive property are enough to fully define state
                 definable = True
@@ -192,12 +192,14 @@ class StateIGas(StatePure):
 
 class FlowPoint_Pure(StatePure):
 
-    def __init__(self, baseState: StatePure, flow: 'Flow'):
+    def __init__(self, baseState: StatePure, flow: 'Flow', log: List = None):
         """Class for flow-aware states. Normally, states are unaware / independent of flows and are simply data containers for thermodynamic information. Flow points represent **points in flows**,
         and hence allow access to flow data through the reference to the flow, and contain the state information inherently, in the same way as a state object."""
 
         self.baseState = baseState
         self.flow = flow
+
+        self.log = log
 
     # Custom __eq__ method - the default version does not take flow of state into account. Overriding __eq__ could have been avoided by simpler use of dataclass but due to property (getter/setter) based
     # nature of this dataclass, I used this method.
@@ -215,12 +217,16 @@ class FlowPoint_Pure(StatePure):
         return hash(self.__members())
 
     #
+    def log_it(self, property: str, value):
+        if self.log is not None:
+            self.log.append([(self, property), value])
 
     def get_P(self):
         return getattr(self.baseState, 'P')
 
     def set_P(self, value):
         setattr(self.baseState, 'P', value)
+        self.log_it('P', value)
 
     P = property(fget=get_P, fset=set_P)
 
@@ -229,6 +235,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_T(self, value):
         setattr(self.baseState, 'T', value)
+        self.log_it('T', value)
 
     T = property(fget=get_T, fset=set_T)
 
@@ -237,6 +244,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_h(self, value):
         setattr(self.baseState, 'h', value)
+        self.log_it('h', value)
 
     h = property(fget=get_h, fset=set_h)
 
@@ -245,6 +253,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_u(self, value):
         setattr(self.baseState, 'u', value)
+        self.log_it('u', value)
 
     u = property(fget=get_u, fset=set_u)
 
@@ -253,6 +262,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_mu(self, value):
         setattr(self.baseState, 'mu', value)
+        self.log_it('mu', value)
 
     mu = property(fget=get_mu, fset=set_mu)
 
@@ -261,6 +271,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_s(self, value):
         setattr(self.baseState, 's', value)
+        self.log_it('s', value)
 
     s = property(fget=get_s, fset=set_s)
 
@@ -269,6 +280,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_x(self, value):
         setattr(self.baseState, 'x', value)
+        self.log_it('x', value)
 
     x = property(fget=get_x, fset=set_x)
 
@@ -277,6 +289,7 @@ class FlowPoint_Pure(StatePure):
 
     def set_s0(self, value):
         setattr(self.baseState, 's0', value)
+        self.log_it('s0', value)
 
     s0 = property(fget=get_s0, fset=set_s0)
 
@@ -290,12 +303,14 @@ class FlowPoint_Pure(StatePure):
 
 class FlowPoint_IGas(StateIGas):
 
-    def __init__(self, baseState: StateIGas, flow: 'Flow'):
+    def __init__(self, baseState: StateIGas, flow: 'Flow', log: List = None):
         """Class for flow-aware states. Normally, states are unaware / independent of flows and are simply data containers for thermodynamic information. Flow points represent **points in flows**,
         and hence allow access to flow data through the reference to the flow, and contain the state information inherently, in the same way as a state object."""
 
         self.baseState = baseState
         self.flow = flow
+
+        self.log = log
 
     # Custom __eq__ method - the default version does not take flow of state into account. Overriding __eq__ could have been avoided by simpler use of dataclass but due to property (getter/setter) based
     # nature of this dataclass, I used this method.
@@ -314,11 +329,16 @@ class FlowPoint_IGas(StateIGas):
 
     #
 
+    def log_it(self, property: str, value):
+        if self.log is not None:
+            self.log.append([(self, property), value])
+
     def get_P(self):
         return getattr(self.baseState, 'P')
 
     def set_P(self, value):
         setattr(self.baseState, 'P', value)
+        self.log_it('P', value)
 
     P = property(fget=get_P, fset=set_P)
 
@@ -327,6 +347,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_T(self, value):
         setattr(self.baseState, 'T', value)
+        self.log_it('T', value)
 
     T = property(fget=get_T, fset=set_T)
 
@@ -335,6 +356,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_h(self, value):
         setattr(self.baseState, 'h', value)
+        self.log_it('h', value)
 
     h = property(fget=get_h, fset=set_h)
 
@@ -343,6 +365,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_u(self, value):
         setattr(self.baseState, 'u', value)
+        self.log_it('u', value)
 
     u = property(fget=get_u, fset=set_u)
 
@@ -351,6 +374,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_mu(self, value):
         setattr(self.baseState, 'mu', value)
+        self.log_it('mu', value)
 
     mu = property(fget=get_mu, fset=set_mu)
 
@@ -359,6 +383,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_s(self, value):
         setattr(self.baseState, 's', value)
+        self.log_it('s', value)
 
     s = property(fget=get_s, fset=set_s)
 
@@ -367,6 +392,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_x(self, value):
         setattr(self.baseState, 'x', value)
+        self.log_it('x', value)
 
     x = property(fget=get_x, fset=set_x)
 
@@ -375,6 +401,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_s0(self, value):
         setattr(self.baseState, 's0', value)
+        self.log_it('s0', value)
 
     s0 = property(fget=get_s0, fset=set_s0)
 
@@ -383,6 +410,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_P_r(self, value):
         setattr(self.baseState, 'P_r', value)
+        self.log_it('P_r', value)
 
     P_r = property(fget=get_P_r, fset=set_P_r)
 
@@ -391,6 +419,7 @@ class FlowPoint_IGas(StateIGas):
 
     def set_mu_r(self, value):
         setattr(self.baseState, 'mu_r', value)
+        self.log_it('mu_r', value)
 
     mu_r = property(fget=get_mu_r, fset=set_mu_r)
 

@@ -37,6 +37,9 @@ class Cycle:
 
         self.intersections = None
 
+        self.log = []
+        self.callbacks = []
+
     def solve(self):
 
         # Steps for initialization
@@ -54,12 +57,11 @@ class Cycle:
             for flow in self.flows:
                 flow._set_devices_endStateReferences()
 
+                flow.log = self.log
+                flow.callbacks = self.callbacks
+
             for flow in self.flows:
                 flow.solve()
-
-            # Get updated unknowns (i.e. defined states) from flow solution
-
-            # TODO #######################################################################
 
             # Identify areas where flows interact, e.g. heat exchangers or flow connections
             self.intersections = self._get_intersections()
@@ -79,6 +81,7 @@ class Cycle:
             #             self._solveIntersection(surroundingDevice)
             #             intersections_attempted_toSolve.append(surroundingDevice)
 
+            # Setting up equations
             self._add_net_sPower_relation()
             self._add_sHeat_relation()
             self._add_netPowerBalance()
@@ -91,6 +94,12 @@ class Cycle:
 
             self._add_massFlowRelations()
 
+            for deviceType in [Combustor, GasReheater]:
+                if deviceType in self._deviceDict:
+                    for device in self._deviceDict[Combustor]:
+                        if isNumeric(device.sHeatSupplied):
+                            self._add_sHeatSupplied_relation(device)
+
             updateEquations(self._equations, self._updatedUnknowns)  # updating all equations in case _solveIntersection() above found any of their unknowns
             self._initialSolutionComplete = True
         # Initialization steps completed.
@@ -102,11 +111,6 @@ class Cycle:
                     solution_setup = self.solve_regenerator(regenerator)
                     self._regerator_solutionSetups[regenerator] = solution_setup
 
-        for deviceType in [Combustor, GasReheater]:
-            if deviceType in self._deviceDict:
-                for device in self._deviceDict[Combustor]:
-                    if isNumeric(device.sHeatSupplied):
-                        self._add_sHeatSupplied_relation(device)
 
         # Review flow devices again in case some properties of some of their endStates became known above
         for flow in self.flows:
@@ -137,7 +141,7 @@ class Cycle:
 
             for state in flow.states:
                 # Replace state with flow point - find the position of the state in the items list, change item at index (i.e. state)
-                flow.items[flow.items.index(state)] = flowPointClass(baseState=state, flow=flow)
+                flow.items[flow.items.index(state)] = flowPointClass(baseState=state, flow=flow, log=self.log)
 
     def get_deviceDict(self) -> Dict:
         deviceDict = {}
@@ -197,16 +201,8 @@ class Cycle:
         for state_in, state_out in device.lines:
             heatBalance_LHS.append( ((state_in.flow, 'massFF'), (state_in, 'h')) )
             heatBalance_LHS.append( ((-1), (state_out.flow, 'massFF'), (state_out, 'h')) )
-        heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
-
-        if heatBalance.isSolvable():  # if solvable by itself, there is only one unknown
-            solution = heatBalance.solve()
-            unknownAddress = list(solution.keys())[0]
-            setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-            self._updatedUnknowns.add(unknownAddress)
-        else:
-            self._equations.append(heatBalance)
-            heatBalance.source = device
+        heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0, source=device)
+        self.solve_or_add_toEquations(heatBalance)
 
     def solve_regenerator(self, device: Regenerator):
 
@@ -243,35 +239,19 @@ class Cycle:
                 heatBalance_LHS.append( ((cold_in.flow, 'massFF'), (cold_in, 'h')) )
                 heatBalance_LHS.append( ((-1), (cold_out.flow, 'massFF'), (cold_out, 'h')) )
 
-            heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
-
-            if heatBalance.isSolvable():  # if solvable by itself, there is only one unknown
-                solution = heatBalance.solve()
-                unknownAddress = list(solution.keys())[0]
-                setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-                self._updatedUnknowns.add(unknownAddress)
-            else:
-                self._equations.append(heatBalance)
-                heatBalance.source = device
-
-            return True
+            heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0, source=device)
+            self.solve_or_add_toEquations(heatBalance)
+            return True  # Regenerator solution setup complete - equation either solved or prepared. No need to visit this method again.
 
         else:
-            return False
+            return False  # Regenerator solution could not be set up.
 
 
     def solve_mixingChamber(self, device: MixingChamber):
         """Sets or verifies common mixing pressure on all end states. Does mass & heat balances on flows."""
 
         # Infer constant mixing pressure
-        sampleState_withPressure = None
-        for endState in device.endStates:
-            if isNumeric(endState.P):
-                sampleState_withPressure = endState
-                break
-        if sampleState_withPressure is not None:
-            for endState in [state for state in device.endStates if state is not sampleState_withPressure]:
-                endState.set_or_verify({'P': sampleState_withPressure.P})
+        device.infer_common_mixingPressure()
 
         # Construct the equations
 
@@ -280,24 +260,17 @@ class Cycle:
         for state_in in device.states_in:
             massBalance_LHS.append( (1, (state_in.flow, 'massFF')) )
         massBalance_LHS.append( (-1, (device.state_out.flow, 'massFF')) )
-        massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
+        massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0, source=device)
 
         # m1h1 + m2h2 + m3h3 - m4h4 = 0
         heatBalance_LHS = []
         for state_in in device.states_in:
             heatBalance_LHS.append( ((state_in.flow, 'massFF'), (state_in, 'h')) )
         heatBalance_LHS.append( (-1, (device.state_out.flow, 'massFF'), (device.state_out, 'h')) )
-        heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0)
+        heatBalance = LinearEquation(LHS=heatBalance_LHS, RHS=0, source=device)
 
         for equation in [massBalance, heatBalance]:
-            if equation.isSolvable():
-                solution = equation.solve()
-                unknownAddress = list(solution.keys())[0]
-                setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-                self._updatedUnknowns.add(unknownAddress)
-            else:
-                self._equations.append(equation)
-                equation.source = device
+            self.solve_or_add_toEquations(equation)
 
     def _add_sHeatSupplied_relation(self, device: Union[Combustor, GasReheater]):  # For combustors
         # sHeatSupplied = state_out.h - state_in.h
@@ -308,8 +281,7 @@ class Cycle:
         else:
             sHeatSupplied_relation_LHS += [ (1, (device.state_in.flow.workingFluid.cp), (device.state_in, 'T')), (-1, (device.state_out.flow.workingFluid.cp), (device.state_out, 'T')) ]
 
-        net_sHeatSupplied_relation = LinearEquation(LHS=sHeatSupplied_relation_LHS, RHS=0)
-        net_sHeatSupplied_relation.source = 'Cycles._add_sHeatSupplied_relation'
+        net_sHeatSupplied_relation = LinearEquation(LHS=sHeatSupplied_relation_LHS, RHS=0, source='Cycles._add_sHeatSupplied_relation')
         self._equations.append(net_sHeatSupplied_relation)
 
     def _add_turbineMassBalance(self, device: Turbine):
@@ -318,16 +290,8 @@ class Cycle:
         massBalance_LHS.append((1, (device.state_in.flow, 'massFF')))
         for state_out in device.states_out:
             massBalance_LHS.append((-1, (state_out.flow, 'massFF')))
-        massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0)
-        massBalance.source = device
-
-        if massBalance.isSolvable():
-            solution = massBalance.solve()
-            unknownAddress = list(solution.keys())[0]
-            setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
-            self._updatedUnknowns.add(unknownAddress)
-        else:
-            self._equations.append(massBalance)
+        massBalance = LinearEquation(LHS=massBalance_LHS, RHS=0, source=device)
+        self.solve_or_add_toEquations(massBalance)
 
     def _add_netPowerBalance(self):
         """Constructs the power balance equation, i.e. netPower = sum(flow.massFR * workDevice.net_sWorkExtracted for workDevice in flow) for flow in self.flows.
@@ -337,8 +301,7 @@ class Cycle:
         mainFlow = self._get_mainFlow()
         for flow in self.flows:
             powerBalance_LHS.append( (-1, (flow, 'massFF'), (mainFlow, 'massFR'), flow.net_sWorkExtracted) )
-        powerBalance = LinearEquation(LHS=powerBalance_LHS, RHS=0)
-        powerBalance.source = 'Cycles._add_netPowerBalance'
+        powerBalance = LinearEquation(LHS=powerBalance_LHS, RHS=0, source='Cycles._add_netPowerBalance')
         self._equations.append(powerBalance)
 
     def _add_Q_in_relation(self):
@@ -348,8 +311,7 @@ class Cycle:
         mainFlow = self._get_mainFlow()
         for flow in self.flows:
             Q_in_relation_LHS.append( (-1, (flow, 'massFF'), (mainFlow, 'massFR'), flow.sHeatSupplied) )
-        Q_in_relation = LinearEquation(LHS=Q_in_relation_LHS, RHS=0)
-        Q_in_relation.source = 'Cycles._add_Q_in_relation'
+        Q_in_relation = LinearEquation(LHS=Q_in_relation_LHS, RHS=0, source='Cycles._add_Q_in_relation')
         self._equations.append(Q_in_relation)
 
     def _add_net_sPower_relation(self):
@@ -357,8 +319,7 @@ class Cycle:
         net_sPower_relation_LHS = [ (-1, (self, 'net_sPower'),) ]
         for flow in self.flows:
             net_sPower_relation_LHS.append( ((flow, 'massFF'), flow.net_sWorkExtracted) )
-        net_sPower_relation = LinearEquation(LHS=net_sPower_relation_LHS, RHS=0)
-        net_sPower_relation.source = 'Cycles._add_net_sPower_relation'
+        net_sPower_relation = LinearEquation(LHS=net_sPower_relation_LHS, RHS=0, source='Cycles._add_net_sPower_relation')
         self._equations.append(net_sPower_relation)
         self._net_sPower_relation = net_sPower_relation
 
@@ -367,8 +328,7 @@ class Cycle:
         sHeat_relation_LHS = [ (-1, (self, 'sHeat'),) ]
         for flow in self.flows:
             sHeat_relation_LHS.append( ((flow, 'massFF'), flow.sHeatSupplied) )
-        net_sPower_relation = LinearEquation(LHS=sHeat_relation_LHS, RHS=0)
-        net_sPower_relation.source = 'Cycles._add_sHeat_relation'
+        net_sPower_relation = LinearEquation(LHS=sHeat_relation_LHS, RHS=0, source='Cycles._add_sHeat_relation')
         self._equations.append(net_sPower_relation)
         self._sHeat_relation = net_sPower_relation
 
@@ -416,3 +376,13 @@ class Cycle:
         for flow in self.flows:
             devices += flow.devices
         return set(devices)
+
+    def solve_or_add_toEquations(self, equation: LinearEquation):
+        """Solves the equation if solvable, and sets the unknown's value. If not solvable, adds equation to the equations pool."""
+        if equation.isSolvable():  # if solvable by itself, there is only one unknown
+            solution = equation.solve()
+            unknownAddress = list(solution.keys())[0]
+            setattr_fromAddress(object=unknownAddress[0], attributeName=unknownAddress[1], value=solution[unknownAddress])
+            self._updatedUnknowns.add(unknownAddress)
+        else:
+            self._equations.append(equation)

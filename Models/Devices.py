@@ -62,6 +62,19 @@ class WorkDevice(Device):
             all_endStates.append(endState)
         return all_endStates
 
+    def set_endStateEntropiesEqual(self):
+        """If isentropic efficiency is 100%, sets entropy of all endStates of the device to be the same. This will help determine some states.
+        If all endStates have entropies defined, *verifies* if they are the same."""
+        state_withNumericS = None
+        for state in self.endStates:
+            if isNumeric(state.s):
+                state_withNumericS = state
+                break
+        if state_withNumericS is not None:
+            for endState in self.endStates:
+                if endState is not state_withNumericS:
+                    endState.set_or_verify({'s': state_withNumericS.s})
+
 
 class Compressor(WorkDevice):
     def __init__(self, eta_isentropic: float = 1, pressureRatio: float = float('nan')):
@@ -294,11 +307,14 @@ class MixingChamber(Device):
 
     def infer_common_mixingPressure(self):
         """Sets or verifies pressures of all end states to be equal."""
-        states_withKnownPressure = [state for state in self.endStates if state.hasDefined('P')]
-        if states_withKnownPressure != []:
-            samplePressure = states_withKnownPressure[0].P
-            for state in self.endStates:
-                state.set_or_verify({'P': samplePressure})
+        sampleState_withPressure = None
+        for endState in self.endStates:
+            if isNumeric(endState.P):
+                sampleState_withPressure = endState
+                break
+        if sampleState_withPressure is not None:
+            for endState in [state for state in self.endStates if state is not sampleState_withPressure]:
+                endState.set_or_verify({'P': sampleState_withPressure.P})
 
 
 class ClosedFWHeater(HeatDevice):
@@ -309,7 +325,7 @@ class ClosedFWHeater(HeatDevice):
         self.bundles = []
         # Each bundle is collection of flows coming in and leaving as one flow.
 
-    class Bundle(Device):
+    class Bundle(Device):  # TODO: To be removed
         def __init__(self):
             super(ClosedFWHeater.Bundle, self).__init__()
             self.states_in: List[StatePure] = []

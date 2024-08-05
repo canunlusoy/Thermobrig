@@ -60,6 +60,11 @@ class CustomQueryAccessor:
         """Returns subcooled liquid states, identified by a quality of -1."""
         return self._mpDF.query('x == -1')
 
+    @property
+    def saturatedStates(self) -> DataFrame:
+        """Returns saturated liquid (x=0) and saturated vapor states (x=1)."""
+        return self._mpDF.query('x == 0 or x == 1')
+
     def cQuery(self, conditions: Dict) -> DataFrame:
         """Custom query method - wrapper around the regular DataFrame.query for convenience."""
         queryString_components = []

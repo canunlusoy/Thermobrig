@@ -47,9 +47,9 @@ class twoList(UserList):
 
 class LinearEquation:
 
-    def __init__(self, LHS: List, RHS: float):
+    def __init__(self, LHS: List, RHS: float, source = None):
 
-        self.source = None
+        self.source = source
 
         self._RHS_original = RHS
         self._LHS_original = LHS
@@ -402,3 +402,11 @@ class Logbook:
                              'result': result,
                              'workedOn': workedOn,
                              'inRelationTo': inRelationTo})
+
+
+class Callback:
+
+    def __init__(self, function: Callable, inputArgs: List, condition):
+        self.function = function
+        self.inputArgs = inputArgs
+        self.condition = condition
